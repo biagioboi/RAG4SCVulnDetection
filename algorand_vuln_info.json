@@ -1,0 +1,167 @@
+{
+  "vulnerabilities": [
+    {
+      "name": "transaction_fee",
+      "title": "Unchecked Transaction Fee",
+      "description": "The 'Unchecked Transaction Fee' vulnerability occurs when an Algorand smart contract does not properly validate the transaction fee. Attackers exploiting the contract by submitting transactions with abnormally high fees, potentially draining funds from other users.",
+      "attack_scenario": "A malicious user submits a transaction with `fee = 1 ALGO` instead of the expected `fee <= 2000 microALGO`, wasting the sender's funds.",
+      "security_check": {
+        "goal": "Ensure that **all critical transactions** (Asset Transfers, Payments, Application Calls) has cap fees.",
+        "required_checks": [
+          "Gtxn[i].fee() <= Int(max_fee)",
+          "Txn.fee() <= Int(max_fee)",
+          "InnerTxnBuilder.SetFee(max_fee)"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "Gtxn[i].type_enum() == TxnType.Payment # Missing fee check",
+        "safe": "And(Gtxn[i].type_enum() == TxnType.Payment, Gtxn[i].fee() <= Int(1000))"
+      },
+      "precondition": "Applicable to smart signatures (delegated smart signatures or contract accounts) that authorize transactions where the sender is the victim of the excessive fee.",
+      "mitigation": "Define a constant `max_fee` and enforce it for all transactions."
+    },
+    {
+      "name": "close_remainder_to",
+      "title": "Unchecked Close Remainder To",
+      "description": "The 'Unchecked Close Remainder To' vulnerability occurs when a stateless smart contract (logic signature) does not explicitly verify that the `close_remainder_to` field is either set to `Global.zero_address()` or to a known, explicitly allowed address in **every** payment transaction it authorizes. Without such checks, attackers may redirect the remaining account balance to arbitrary destinations.",
+      "attack_scenario": "An attacker crafts a payment transaction using the smart signatures and sets `close_remainder_to` to their own address. If the contract does not prevent this or restrict it to expected addresses, the user's remaining account balance can be drained.",
+      "security_check": {
+        "goal": "Validate that **all authorized payment transactions** ensure `close_remainder_to` is either `Global.zero_address()` or a predefined safe address.",
+        "required_checks": [
+          "Txn.type_enum() == TxnType.Payment\n Txn.close_remainder_to() == Global.zero_address()",
+          "Or(Gtxn[i].close_remainder_to() == Global.zero_address(), Gtxn[i].close_remainder_to() == Addr('TRUSTED_ADDR'))"
+        ],
+        "non_compliance_note": "Not referencing the `close_remainder_to` field is not safe. If closing is intended, it must be limited to known, verified addresses."
+      },
+      "code_examples": {
+        "vulnerable": "Txn.type_enum() == TxnType.Payment  # Missing check on close_remainder_to",
+        "safe": "And(Txn.type_enum() == TxnType.Payment, Or(Txn.close_remainder_to() == Global.zero_address(), Txn.close_remainder_to() == Addr('TRUSTED_ADDR')))  # Safe with controlled closure"
+      },
+      "precondition": "Applicable to smart signatures that authorize payment transactions.",
+      "mitigation": "Always enforce `close_remainder_to == Global.zero_address()` unless closure to a specific, trusted address is part of the contract logic. If so, validate that address explicitly."
+    },
+    {
+      "name": "asset_close_to",
+      "title": "Unchecked Asset Close To",
+      "description": "The 'Unchecked Asset Close To' vulnerability occurs when a smart signatures does not check that the `asset_close_to` field is either `Global.zero_address()` or an explicitly trusted address. Without this, an attacker may drain remaining asset holdings to their own account.",
+      "attack_scenario": "An attacker crafts an asset transfer using a smart signature and sets `asset_close_to` to their own address. If the contract doesn't prevent or restrict this, the user’s remaining assets can be maliciously redirected.",
+      "security_check": {
+        "goal": "Validate that all authorized asset transfers ensure `asset_close_to` is either `Global.zero_address()` or a predefined safe address.",
+        "required_checks": [
+          "Txn.asset_close_to() == Global.zero_address()",
+          "Or(Gtxn[i].asset_close_to() == Global.zero_address(), Gtxn[i].asset_close_to() == Addr('SAFE_ADDR'))"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "Txn.type_enum() == TxnType.AssetTransfer  # Missing asset_close_to check",
+        "safe": "And(Txn.type_enum() == TxnType.AssetTransfer, Or(Txn.asset_close_to() == Global.zero_address(), Txn.asset_close_to() == Addr('SAFE_ADDR')))  # Properly checks asset_close_to"
+      },
+      "precondition": "Applies to smart signatures that authorize asset transfer transactions.",
+      "mitigation": "Explicitly verify that `asset_close_to` is either `Global.zero_address()` or a trusted, contract-defined address."
+    },
+    {
+      "name": "rekey_to",
+      "title": "Rekeying Attack",
+      "description": "The 'Unchecked Rekey To' vulnerability is a critical security risk that occurs when smart contracts fail to validate the `rekey_to` field in transactions, potentially allowing attackers to steal complete control of accounts (including contract accounts).",
+      "attack_scenario": "A transaction with `rekey_to = attacker_address` transfers account ownership.",
+      "security_check": {
+        "goal": "Ensure that **all payment and asset transfer transactions** explicitly verify that their `rekey_to` field is set to `Global.zero_address()`. This requirement applies to both `Txn.rekey_to()` and `Gtxn[i].rekey_to()` forms.\n Important: The absence of a check does **not** imply safety. A field is considered unchecked unless it is **explicitly validated** in every applicable transaction. Relying on defaults or omissions is not secure.",
+        "required_checks": [
+          "Txn.rekey_to() == Global.zero_address()",
+          "Gtxn[i].rekey_to() == Global.zero_address()"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "Txn.type_enum() == TxnType.Payment # (also TxnType.AssetTransfer) Missing rekey_to check",
+        "safe": "And(Txn.type_enum() == TxnType.Payment, Txn.rekey_to() == Global.zero_address())"
+      },
+      "precondition": "Applies exclusively to smart signatures. The transactions that can be rekeyed are asset transfer transactions or payment transactions. Crucially, **ApplicationCall transactions cannot be rekeyed** and are therefore exempt from this vulnerability.",
+      "mitigation": "Explicitly reject transactions with `rekey_to != Global.zero_address()`."
+    },
+    {
+      "name": "Unchecked_Payment_Receiver",
+      "title": "Unchecked Payment Receiver",
+      "description": "The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.",
+      "attack_scenario": "A payment transaction sends ALGOs to `attacker_address` instead of the intended recipient due to missing validation.",
+      "security_check": {
+        "goal": "Ensure payments only go to whitelisted addresses.",
+        "required_checks": [
+          "Txn.receiver() == valid_receiver",
+          "Gtxn[i].receiver() == valid_receiver,"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "Txn.type_enum() == TxnType.Payment # Missing receiver check",
+        "safe": "trusted_address = Addr(\"EAF7N2GQPDCON7I5QVJXMFSSTV4J2OY66TOAYPHNGS7W76PCSUHU2RIMSY\") \n And(Txn.type_enum() == TxnType.Payment, Txn.receiver() == trusted_address)"
+      },
+      "precondition": "Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.",
+      "mitigation": "Whitelist allowed receiver addresses or hardcode them."
+    },
+    {
+      "name": "Unchecked_Asset_Receiver",
+      "title": "Unchecked Asset Receiver",
+      "description": "The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.",
+      "attack_scenario": "An asset transfer sends ASA tokens to `attacker_address` instead of the intended recipient.",
+      "security_check": {
+        "goal": "Ensure asset transfer only go to whitelisted addresses.",
+        "required_checks": [
+          "Gtxn[i].asset_receiver() == trusted_address",
+          "Txn.asset_receiver() == trusted_address"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "Gtxn[0].type_enum() == TxnType.AssetTransfer # Missing receiver check",
+        "safe": "trusted_address = Addr(\"EAF7N2GQPDCON7I5QVJXMFSSTV4J2OY66TOAYPHNGS7W76PCSUHU2RIMSY\") \n And(Gtxn[0].type_enum() == TxnType.AssetTransfer, Gtxn[0].asset_receiver() == trusted_address)"
+      },
+      "precondition": "Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.",
+      "mitigation": "Whitelist allowed receivers or hardcode them."
+    },
+    {
+      "name": "arbitrary_update",
+      "title": "Arbitrary Contract Update",
+      "description": "If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can invoke this operation to replace the contract's logic with malicious code.",
+      "attack_scenario": "An attacker calls `UpdateApplication` to inject harmful logic.",
+      "security_check": {
+        "goal": "Ensure that UpdateApplication calls are restricted to authorized entities (es. creator or admin).",
+        "required_checks": [
+          "Txn.on_completion() == OnComplete.UpdateApplication \n Txn.sender() == Global.creator_address() # check if the sender is the creator",
+          "Txn.on_completion() == OnComplete.UpdateApplication \n Assert(Txn.sender() == App.globalGet(admin_key)) # check if the sender is the admin" ,
+          "Txn.on_completion() == OnComplete.UpdateApplication \n Txn.sender() == Global.zero_address() # check if updates are completely disabled"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "[Txn.on_completion() == OnComplete.UpdateApplication, Approve()] # There is no control over the sender of the transaction",
+        "safe": [
+          "And(Txn.on_completion() == OnComplete.UpdateApplication, Txn.sender() == Global.creator_address()) # check if the sender is the creator",
+          "And(Txn.on_completion() == OnComplete.UpdateApplication, Txn.sender() == Global.zero_address()) # update is completely disabled"
+        ]
+      },
+      "precondition": "Applies to smart contracts (stateful applications) that allow update by handling the UpdateApplication call. If there's no handler for OnComplete.UpdateApplication the UpdateUpdateApplication cannot be called, so the issue cannot be present.",
+      "mitigation": "Explicitly verify the sender is the creator, or disallow updates entirely using Global.zero_address()."
+    },
+
+    {
+      "name": "arbitrary_delete",
+      "title": "Arbitrary Contract Deletion",
+      "description": "If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.",
+      "attack_scenario": "An attacker calls `DeleteApplication`, wiping the contract and any locked assets.",
+      "security_check": {
+        "goal": "Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).",
+        "required_checks": [
+          "Txn.on_completion() == OnComplete.DeleteApplication \n Txn.sender() == Global.creator_address() # check if the sender is the creator",
+          "Txn.on_completion() == OnComplete.DeleteApplication \n Txn.sender() == Global.zero_address() # check if deletion are completely disabled"
+        ]
+      },
+      "code_examples": {
+        "vulnerable": "[Txn.on_completion() == OnComplete.DeleteApplication, Approve()] # No sender check",
+        "safe": "And(Txn.on_completion() == OnComplete.DeleteApplication, Txn.sender() == Global.creator_address()) # Sender check"
+      },
+      "precondition": "Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call",
+      "mitigation": "Explicitly verify the sender is the creator before deletion."
+    }
+  ],
+  "metadata": {
+    "version": "1.5",
+    "author": "Nt"
+  }
+}

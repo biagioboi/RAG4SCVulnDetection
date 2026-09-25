@@ -1,0 +1,110 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract is designed to record payment transaction details into global state, specifically storing the receiver address and amount from a payment transaction. It also enforces creator-only permissions for updating or deleting the application.
+
+### Functional Description
+1. **Creation handler**: Stores the transaction sender's address as the creator in global state under the key "Creator".
+2. **Opt-in handler**: Allows any account to opt in without conditions.
+3. **Close-out handler**: Allows any account to close out without conditions.
+4. **Update application handler**: Verifies that the transaction sender matches the stored creator address before allowing the update.
+5. **Delete application handler**: Verifies that the transaction sender matches the stored creator address before allowing deletion.
+6. **NoOp handler (payment processing)**:
+   - Requires at least two transactions in the atomic group.
+   - Requires the current transaction to be a payment type.
+   - Requires the payment amount to be greater than zero.
+   - Stores the first account in the accounts array as "Receiver" in global state.
+   - Stores the payment amount as "Amount" in global state.
+   - Transaction 0 (application call) checks: on_completion is NoOp.
+   - Transaction 1 (payment) checks: type_enum is Payment, amount > 0.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Payment Receiver** (0.9263)
+        - **Description:** The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.
+        - **Preconditions:** Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.
+        - **Security check to perform**: Ensure payments only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    handle_payment = Seq([
+        Assert(Global.group_size() >= Int(2)),
+        Assert(Txn.type_enum() == TxnType.Payment),
+        Assert(Txn.amount() > Int(0)),
+        App.globalPut(Bytes("LastReceiver"), Txn.accounts[1]),
+        App.globalPut(Bytes("LastAmount"), Txn.amount()),
+        Approve()
+	# The contract records Txn.accounts[1] as the payment receiver without verifying or restricting which account can be placed in this field. An attacker can supply any arbitrary account in the transaction's account list
+
+    ])
+          ```
+      
+    2. **Unchecked Asset Receiver** (0.9191)
+        - **Description:** The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.
+        - **Preconditions:** Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.
+        - **Security check to perform**: Ensure asset transfer only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_transfer = Seq([
+        Assert(
+            And(
+                Txn.group_index() == Int(1),
+                Gtxn[0].type_enum() == TxnType.AssetTransfer,
+                Gtxn[1].type_enum() == TxnType.ApplicationCall,
+                Gtxn[0].xfer_asset() == Gtxn[1].assets[0],
+                Gtxn[0].asset_amount() >= min_amount
+            )
+        ),
+        # VULNERABILITÃ€: Unchecked_Asset_Receiver
+        # Il receiver dell'asset transfer (Txn.accounts[1]) non viene verificato
+        # potrebbe essere qualsiasi account, anche non autorizzato
+        App.globalPut(Concat(key_prefix, Txn.accounts[1]), Gtxn[0].asset_amount()),
+        Approve()
+    ])
+          ```
+      
+    3. **Arbitrary delete** (0.9178)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call
+        - **Security check to perform**: Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    If(
+            Txn.on_completion() == OnComplete.DeleteApplication,
+            Seq([
+                Log(Bytes("Application Deleted by: " + Txn.sender())),
+                Return(Int(1))  # Permette sempre l'eliminazione
+            ])
+        ),
+          ```
+      
+    4. **Arbitrary update** (0.9095)
+    
+    5. **Unchecked Close Remainder To** (0.8986)
+    
+    6. **Unchecked Rekey to** (0.8912)
+    
+    7. **Unchecked Asset Close To** (0.8900)
+    
+    8. **Unchecked Transaction Fee** (0.8900)
+    
+
+--------------------------------------------------Audit--------------------------------------------------0.9997
+  1. The contract is an Algorand application where the creator’s address is stored globally. It permits opt‑in, close‑out, update, and delete only by the creator, and processes payments by requiring a group of at least two transactions, a Payment type, and a positive amount. On a payment, it records the second transaction’s signer (Txn.accounts[1]) as the “Receiver” and the amount as “Amount”.
+  2. Logic inspection:
+     - Creation: stores sender as creator.
+     - UpdateApplication / DeleteApplication: asserts sender == stored creator.
+     - handle_payment: checks group size ≥2, Txn.type_enum()==Payment, amount>0, then writes Txn.accounts[1] to global “Receiver” and amount to “Amount”.
+  3. RAG vulnerability checks:
+     • Unchecked Payment Receiver – contract writes Txn.accounts[1] without validation; any signer can be chosen as receiver.
+     • Unchecked Asset Receiver – not applicable (only Payment transactions).
+     • Arbitrary delete – DeleteApplication is restricted to creator.
+     • Arbitrary update – UpdateApplication is restricted to creator.
+     • Unchecked Close Remainder To, Unchecked Rekey to, Unchecked Asset Close To, Unchecked Transaction Fee – not present.
+  4. The only matching vulnerability is Unchecked Payment Receiver; the contract fails to enforce that the receiver be a whitelisted or authorized address.
+  5. No additional security invariant violations were identified.
+
+### Vulnerability: Unchecked Payment Receiver
+### Explanation: The contract stores Txn.accounts[1] as the payment receiver without verifying that the address is authorized, allowing an attacker to supply any account as the second signer and redirect funds to an address of their choice.
+### Risk: Critical – Funds can be stolen by redirecting legitimate payments to a malicious address.
+### Mitigation: Validate the receiver against a whitelist or ensure it matches the intended payee (e.g., require Txn.accounts[1] == intended_recipient or check that the receiver is the creator or a pre‑approved address) before storing or processing the payment.

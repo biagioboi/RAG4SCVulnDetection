@@ -1,0 +1,419 @@
+{
+  "sample": 0,
+  "metrics": {
+    "accuracy": 0.3929,
+    "precision": 0.5882,
+    "recall": 0.5,
+    "f1_score": 0.5405,
+    "confusion_matrix": {
+      "tp": 20,
+      "fp": 14,
+      "tn": 2,
+      "fn": 20
+    },
+    "per_vulnerability": {
+      "Arbitrary delete": {
+        "tp": 1,
+        "fp": 1,
+        "fn": 4
+      },
+      "Unchecked Transaction Fee": {
+        "tp": 3,
+        "fp": 2,
+        "fn": 2
+      },
+      "Arbitrary update": {
+        "tp": 3,
+        "fp": 3,
+        "fn": 2
+      },
+      "Unchecked Asset Close To": {
+        "tp": 2,
+        "fp": 2,
+        "fn": 3
+      },
+      "Unchecked Payment Receiver": {
+        "tp": 5,
+        "fp": 5,
+        "fn": 0
+      },
+      "Unchecked Close Remainder To": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 4
+      },
+      "Unchecked Asset Receiver": {
+        "tp": 5,
+        "fp": 1,
+        "fn": 0
+      },
+      "Unchecked Rekey to": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 5
+      }
+    }
+  },
+  "details": [
+    {
+      "file": "pyteal1.json",
+      "ground_truth": "arbitrary_delete",
+      "predictions": [
+        "Unchecked Transaction Fee"
+      ],
+      "response": "<final>\nThis contract handles application deletion and opt-in transactions, performs logging based on transaction amounts, and checks for rekeying. \n\n### Vulnerability: Unchecked Transaction Fee  \n### Explanation: The contract does not verify the transaction fee. An attacker could exploit this by sending transactions with insufficient fees, potentially causing the contract to fail or behave unexpectedly.\n\n### Risk: Medium - This could lead to denial of service or unexpected behavior if transactions with insufficient fees are processed.\n</final>"
+    },
+    {
+      "file": "pyteal10.json",
+      "ground_truth": "arbitrary_update",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "### Vulnerability: Arbitrary update  \n### Explanation: The contract allows arbitrary updates to global storage keys without validating the keys or values being set. Specifically, when an UpdateApplication transaction is triggered, the contract blindly sets `Txn.application_args[0]` to `Txn.application_args[1]` without checking if the key is safe or if the update is authorized. An attacker could potentially overwrite critical keys like `total_funds_key` or user balance keys to manipulate the contract's state.  \n### Risk: Critical - This allows unauthorized modification of contract state, leading to loss of funds or incorrect balance tracking."
+    },
+    {
+      "file": "pyteal11.json",
+      "ground_truth": "asset_close_to",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Payment Receiver\n### Explanation: The contract allows payments to be accepted only at specific receiver addresses. However, the asset transfers are checked for specific receivers while payments are not checked beyond the receiver being set. If an attacker can somehow manipulate the transaction type or the group index, they might send payments to unintended receivers.\n### Risk: Medium. The risk arises if the group index or transaction type is manipulated, potentially allowing payments to be sent to unauthorized addresses."
+    },
+    {
+      "file": "pyteal12.json",
+      "ground_truth": "asset_close_to",
+      "predictions": [
+        "Unchecked Asset Close To"
+      ],
+      "response": "### Vulnerability: Unchecked Asset Close To  \n### Explanation: In transaction `txn_1`, the `asset_close_to` field is not checked. This could allow an attacker to close the asset account to an arbitrary address, potentially stealing remaining assets.  \n### Risk: High - The unchecked `asset_close_to` could lead to asset loss or theft if exploited.  \n\n### Vulnerability: Unchecked Transaction Fee  \n### Explanation: While the contract checks `fee() <= max_fee` for all three transactions (`txn_0`, `txn_1`, `txn_2`), this only ensures fees are within a defined threshold. It does not prevent users from paying higher fees than necessary, which could be exploited for spam or denial-of-service attacks.  \n### Risk: Medium - Potential misuse through excessive fee payments.  \n\n### Vulnerability: Not Vulnerable  \n### Explanation: The contract includes checks for `rekey_to()` being zero addresses for all transactions (`txn_0`, `txn_1`, `txn_2`), preventing unauthorized account rekeying.  \n### Risk: No significant risk identified.  \n\n### Vulnerability: Unchecked Asset Receiver  \n### Explanation: In transaction `txn_1`, the `asset_receiver()` field is not verified to ensure it matches the expected receiver (`receiver_B`). This could allow an attacker to redirect assets to an unintended address if the condition is bypassed or modified.  \n### Risk: High - Assets could be misdirected if this check is circumvented.  \n\n### Vulnerability: Unchecked Payment Receiver  \n### Explanation: Transaction `txn_2` includes a check that `receiver()` matches a specific address. However, the `close_remainder_to()` field is fixed to zero address. No explicit check ensures this field remains unmodified, potentially allowing unintended closure behavior if the transaction is altered.  \n### Risk: Medium - Misbehavior possible if the transaction is modified or if the logic is bypassed.  \n\n### Vulnerability: Unchecked Close Remainder To  \n### Explanation: Transaction `txn_2` sets `close_remainder_to()` to zero address but does not explicitly verify this field. This could allow attackers to override the `close_remainder_to()` field in a modified transaction, leading to unexpected fund distribution.  \n### Risk: Medium - Funds could be redirected if the transaction is tampered with.  \n\n### Vulnerability: Arbitrary Update  \n### Explanation: Transaction `txn_1` uses an `If` statement to determine `asset_amount()` based on the timestamp modulo operation. This logic is arbitrary and may not align with intended business rules. If exploited or misunderstood, it could lead to unintended asset transfers or discrepancies.  \n### Risk: Medium - Potential misuse or confusion due to arbitrary logic.  \n\n### Final Summary:  \nThe contract implements multiple asset and payment transactions within a defined time window. While several transaction fields are checked, others such as `asset_close_to`, `asset_receiver`, `close_remainder_to`, and transaction fees are either unchecked or insufficiently validated, exposing potential vulnerabilities.  \n\n### Final Vulnerability: Unchecked Asset Close To  \n### Final Explanation: Transaction `txn_1` lacks a check for the `asset_close_to()` field, allowing an attacker to redirect assets to an arbitrary address.  \n### Final Risk: High - This could lead to asset theft or loss."
+    },
+    {
+      "file": "pyteal13.json",
+      "ground_truth": "asset_close_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThis contract validates a single transaction in a group, enforcing constraints on asset transfer parameters such as asset ID, amount, receiver, and note. However, multiple inconsistencies and incorrect assignments are present.\n\n### Vulnerability: Not Vulnerable\n### Explanation: The contract does not contain direct vulnerabilities related to reentrancy, arbitrary updates, or deletions. However, the asset receiver is hardcoded, and the asset amount and xfer_asset are incorrectly assigned the value `expiration_time`, which is an integer representing a timestamp rather than an asset ID. Additionally, the fee is capped at `maximum_amount`, which is misnamed since it likely refers to fee instead of asset amount. These are logical errors rather than security vulnerabilities.\n### Risk: Medium - Misuse of variable names and incorrect assignments could lead to unexpected behavior, potentially causing the contract to reject valid transactions or accept invalid ones. This could disrupt intended functionality but does not directly expose funds to theft or unauthorized access.\n</final>"
+    },
+    {
+      "file": "pyteal14.json",
+      "ground_truth": "asset_close_to",
+      "predictions": [
+        "Unchecked Asset Close To"
+      ],
+      "response": "<final>\nThe contract allows a group of five transactions to be submitted under specific conditions but has vulnerabilities due to overlapping or insufficient validation of transaction groups.\n\n### Vulnerability: Unchecked Asset Close To\n### Explanation: The contract includes an asset transfer transaction (tx5_check) but does not validate the `asset_close_to` field. This could allow an attacker to close out the sender's remaining asset balance to an unintended address.\n### Risk: Medium - An attacker could potentially drain assets from the sender's account if the transaction is crafted maliciously.\n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: The contract verifies receivers for most payments but does not validate receivers in tx4_check for the fourth transaction. This could allow funds to be sent to unintended addresses.\n### Risk: Medium - Funds could be sent to unauthorized addresses if the transaction group is not properly constructed.\n\n### Vulnerability: Unchecked Rekey to\n### Explanation: While most transactions explicitly set `rekey_to` to zero address, tx5_check only verifies that `rekey_to` is zero address without checking other transactions. This could allow rekeying in other transactions if not properly restricted.\n### Risk: Medium - An attacker could potentially rekey accounts involved in the transaction group to malicious addresses.\n\n### Vulnerability: Unchecked Transaction Fee\n### Explanation: Transaction fees are capped but not verified comprehensively across all transactions, potentially allowing high fees to be paid by the sender.\n### Risk: Low - High fees are unlikely to be exploited unless combined with other vulnerabilities.\n\n### Vulnerability: Not Vulnerable\n### Explanation: No critical vulnerabilities are found that would allow arbitrary deletion or update, or direct asset theft.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "pyteal15.json",
+      "ground_truth": "asset_close_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThis contract enforces a group transaction of three transactions: two asset transfers and one payment. It checks transaction types, fees, asset IDs, receivers, and ensures rekeying is disabled.\n### Vulnerability: Not Vulnerable\n### Explanation: The contract enforces strict checks on asset transfer receivers and payment receivers, ensuring they match expected values. It also limits fees and disables rekeying. There are no unchecked receivers or rekeying fields.\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal16.json",
+      "ground_truth": "close_remainder_to",
+      "predictions": [
+        "Unchecked Close Remainder To"
+      ],
+      "response": "<final>\nThe contract allows periodic payments under certain conditions but lacks authorization checks and may permit unintended asset closure.\n\n### Vulnerability: Unchecked Close Remainder To\n### Explanation: The contract allows a transaction to close an account's funds to the zero address (`periodic_pay_close`), but there's no validation that the account being closed is authorized to do so. This could allow unauthorized closure of accounts holding funds.\n### Risk: Medium - An attacker could potentially close accounts or drain funds if they can trigger the transaction conditions.\n</final>"
+    },
+    {
+      "file": "pyteal17.json",
+      "ground_truth": "close_remainder_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "### Vulnerability: Not Vulnerable  \n### Explanation: The contract explicitly validates each transaction in the group, including type, receiver, asset receiver, application arguments, fees, and rekey_to fields. All receivers and asset receivers are fixed addresses, and there are no dynamic or user-controlled fields that could lead to unauthorized actions. The contract also verifies that the group size is exactly six transactions.  \n### Risk: No significant risk identified"
+    },
+    {
+      "file": "pyteal18.json",
+      "ground_truth": "close_remainder_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract enforces a fixed group size of 6 transactions and performs checks on each transaction's type, parameters, and fees. It appears to be a group transaction validator for a specific workflow.\n\n### Vulnerability: Not Vulnerable\n### Explanation: The contract explicitly validates each transaction's type, receiver, amounts, fees, and other parameters. All rekey_to, close_remainder_to, and asset_close_to fields are set to zero address, preventing unintended rekeying or asset closure. The group size is fixed and the application IDs are hard-coded, ensuring predictable behavior.\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal19.json",
+      "ground_truth": "close_remainder_to",
+      "predictions": [
+        "Unchecked Asset Close To"
+      ],
+      "response": "<final>\nThis contract is intended to validate a multi-transaction payment and asset transfer scenario with specific constraints, including a sender, receivers, amounts, timeouts, and fees. It performs several checks on three transactions (Gtxn[0], Gtxn[1], Gtxn[2]) and a primary transaction.\n\n### Vulnerability: Unchecked Asset Close To\n### Explanation: The contract checks `Gtxn[2].asset_close_to == Global.zero_address()` but only after verifying that `Gtxn[2].receiver() == receiver_c`. However, there is no explicit check ensuring that `Gtxn[2].asset_close_to` is not set arbitrarily by an attacker. If an attacker constructs a transaction with a non-zero `asset_close_to`, they could redirect leftover assets to an unintended address, bypassing the zero-check if the contract does not enforce it correctly.\n\n### Risk: Medium - This vulnerability allows potential redirection of leftover assets from the asset transfer transaction, which could lead to loss or misallocation of assets if the attacker exploits it.\n</final>"
+    },
+    {
+      "file": "pyteal2.json",
+      "ground_truth": "arbitrary_delete",
+      "predictions": [
+        "Unchecked Transaction Fee"
+      ],
+      "response": "<final>\nThe contract has several suspicious constructs that could introduce vulnerabilities depending on deployment and usage context.\n\n### Vulnerability: Unchecked Transaction Fee\n### Explanation: The contract does not verify the transaction fee field (`txn.fee`), allowing attackers to set unusually high fees to drain funds or manipulate the contract's behavior through excessive fee payments.\n### Risk: Medium - High fees could lead to economic loss or denial-of-service if attackers exhaust funds in the contract's account.\n\n### Vulnerability: Unchecked Asset Close To / Close Remainder To\n### Explanation: The contract does not handle asset transactions (`Txn.type_enum() == TxnType.AssetTransfer`), nor does it verify `close_remainder_to` or `asset_close_to` fields. This could allow draining assets from the contract account.\n### Risk: Medium - Assets could be drained if attackers exploit unchecked asset transfers.\n\n### Vulnerability: Unchecked Rekey to\n### Explanation: The contract checks `Txn.rekey_to()` but only logs and returns `Int(0)` upon detection. It does not block or enforce authorization on rekey operations.\n### Risk: Medium - An attacker could rekey the contract account to themselves, compromising control.\n\n### Vulnerability: Not Vulnerable\n### Explanation: The contract does not handle arbitrary delete or update operations beyond the allowed conditions (`OptIn`, `UpdateApplication` with sender check).\n### Risk: No significant risk identified.\n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: While the contract checks `Txn.type_enum() == TxnType.Payment`, it does not verify the `receiver` field, allowing payments to unintended recipients.\n### Risk: Medium - Funds could be sent to incorrect addresses, leading to loss or misuse.\n</final>"
+    },
+    {
+      "file": "pyteal20.json",
+      "ground_truth": "close_remainder_to",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Payment Receiver  \n### Explanation: The contract allows payments to `tmpl_rcv1` and `tmpl_rcv2`, but there is no verification that these addresses are authorized or controlled by the contract creator. This could allow funds to be sent to unintended recipients if the template addresses (`tmpl_rcv1`, `tmpl_rcv2`) are incorrectly configured or maliciously set.  \n\n### Risk: Medium - Funds could be incorrectly distributed to unauthorized addresses due to lack of verification on the receiver addresses."
+    },
+    {
+      "file": "pyteal21.json",
+      "ground_truth": "no vuln",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "<final>\nThe contract requires two asset transfers to be grouped together and executed within a specific time window. It includes checks on fees, asset types, receivers, amounts, and close-to addresses. However, one transaction's asset amount depends on the timestamp modulo 2, which introduces an unexpected conditional behavior.\n\n### Vulnerability: Unchecked Asset Receiver  \n### Explanation: In `txn_1`, the asset receiver is not explicitly checked against a fixed address like `tmpl_receiver_2`. Instead, the receiver is implicitly assumed to be valid because the transaction is grouped. This could allow an attacker to manipulate the receiver address if the grouping mechanism is compromised or if the contract does not validate it explicitly.\n\n### Risk: Medium  \nThe risk stems from the possibility of an asset being sent to an unintended receiver if transaction grouping is exploited or if the contract logic is misused. This could lead to asset loss or misallocation.\n</final>"
+    },
+    {
+      "file": "pyteal22.json",
+      "ground_truth": "no vuln",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "### Summary and High-Level Architecture\n\nThe contract is designed to handle a **2-transaction group** logic where:\n- Two payments are made to `tmpl_rcv1` and `tmpl_rcv2`, respectively.\n- The amounts must adhere to a ratio (`tmpl_ratn / tmpl_ratd`) and be above a minimum threshold (`tmpl_min_pay`).\n- If only one transaction is submitted (i.e., group size is 1), it must be a close-out transaction to `tmpl_own` after a timeout (`tmpl_timeout`).\n\nThe contract performs several checks:\n- Fee limits.\n- No rekeying in transactions.\n- No asset close-remainder-to usage.\n- Sender consistency across grouped transactions.\n- Correct receivers.\n- Ratio-based amount validation.\n- Minimum amount thresholds.\n- Close-out conditions after timeout.\n\n---\n\n### Block-by-Block Inspection\n\n#### `split_core`\n- Ensures transaction type is Payment.\n- Checks fee is <= `tmpl_fee`.\n- Ensures `rekey_to` is zero address.\n\n✅ Secure base logic.\n\n#### `split_transfer`\n- Verifies group size is 2.\n- Ensures both transactions are Payments.\n- Both transactions must have the same sender.\n- Ensures no rekey_to or close_remainder_to fields set.\n- Verifies receivers are `tmpl_rcv1` and `tmpl_rcv2`.\n- Validates amounts adhere to ratio `(r1 / r2)` via formula.\n- Adds minimum amount checks for both payments.\n- Verifies fees are within limits.\n\n✅ Solid logic. Ensures sender consistency, receiver correctness, ratio validation.\n\n#### `split_close`\n- Ensures close-out transaction:\n  - Sends remainder to `tmpl_own`.\n  - Zero amount.\n  - No rekey_to.\n  - No close_remainder_to.\n  - Receiver is zero address.\n  - First valid time > timeout.\n  - Fee limit respected.\n\n✅ Secure close-out logic.\n\n#### `split_program`\n- Combines core logic with conditional branch based on group size.\n\n✅ No issues detected in logic structure.\n\n---\n\n### Issues Identified\n\n- **No evidence of unchecked access** to arbitrary receivers, deletions, or rekeys.\n- All receivers are explicitly checked against hardcoded addresses.\n- All rekey_to fields are verified as zero.\n- Close_remainder_to fields are zero-checked.\n- No transaction types are misused or bypassed.\n- All required checks are present for grouped transactions and close-out.\n\n---\n\n### Final Judgment\n\n<final>\nThis contract securely implements a conditional payment-split logic and close-out mechanism with appropriate checks on rekey_to, receivers, fees, and transaction types.\n\n### Vulnerability: Not Vulnerable  \n### Explanation: All transaction parameters are verified against predefined values, including receivers, rekey_to, and close_remainder_to fields. No arbitrary updates, deletions, or rekeying is allowed without checks.\n\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal23.json",
+      "ground_truth": "no vuln",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "<final>\nThe contract is a split payment and close-remainder-to logic contract, but has vulnerabilities related to transaction validation and authorization.\n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: In the `split_transfer` block, the contract validates only the receiver addresses for Gtxn[0] and Gtxn[1], but does not verify that these transactions are intended to be grouped and executed together by the same sender. An attacker could craft transactions with arbitrary senders to bypass the `Gtxn[0].sender() == Gtxn[1].sender()` check, if the group transaction is forged improperly. Additionally, there is no validation that ensures the sender is the one initiating the transaction group.\n\n### Risk: Medium - An attacker could exploit the lack of sender validation in the transaction group to manipulate the contract's behavior or redirect funds unintentionally.\n\n### Vulnerability: Unchecked Close Remainder To\n### Explanation: The `split_close` block allows closing the remainder balance to `tmpl_own`, but does not ensure that the sender is authorized to do so. If this transaction is executed without proper sender validation, an unauthorized party might be able to close the account's balance to the owner's address.\n\n### Risk: Medium - Unauthorized users might close accounts or redirect funds if the contract does not validate sender authorization for this operation.\n\n### Vulnerability: Not Vulnerable\n### Explanation: The contract includes checks for transaction fee limits, transaction type, and some sender and receiver validations. However, the lack of robust sender validation in grouped transactions introduces potential risks.\n\n### Risk: No significant risk identified if sender validation is added and the contract is deployed correctly, but the current implementation contains exploitable gaps.\n</final>"
+    },
+    {
+      "file": "pyteal24.json",
+      "ground_truth": "no vuln",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "### Summary\nThe contract is a simple payment smart signature that accepts donations up to a maximum amount of 10,000,000 microAlgos to a fixed receiver address. It ensures the transaction fee is at most 1000 microAlgos and that no rekeying or close-remainder-to operations are performed.\n\n### Block-by-Block Analysis\n\n1. `Txn.type_enum() == TxnType.Payment`  \n   - Checks that the transaction is a payment transaction.  \n   - This is expected and safe.\n\n2. `Txn.amount() <= Int(10000000)`  \n   - Ensures the donation amount does not exceed 10,000,000 microAlgos.  \n   - This is a reasonable and safe limit.\n\n3. `Txn.receiver() == Addr(\"XEMH3GGFQBEIWES7ZRGPD6DAHSUKUZIC7JXVOFYROTUYH7QZGU2N6AFSFE\")`  \n   - Ensures payments are only accepted by the specified receiver address.  \n   - This is correct behavior for a donation contract.\n\n4. `Txn.fee() <= Int(1000)`  \n   - Ensures that the transaction fee is within a reasonable bound.  \n   - This helps prevent excessive fee consumption.\n\n5. `Txn.close_remainder_to() == Global.zero_address()`  \n   - Ensures that the sender's account does not accidentally close its remaining balance to another address.  \n   - This prevents unintended behavior.\n\n6. `Txn.rekey_to() == Global.zero_address()`  \n   - Ensures that the transaction does not attempt to rekey the sender's account to another address.  \n   - This prevents account hijacking via rekeying.\n\n### Observations\n- All transaction fields are explicitly checked for correctness.\n- The contract is designed to accept payments with strict constraints, limiting the possibility of misuse.\n- No authorization checks are required since this is a signature mode contract, and any user can submit a transaction that satisfies the contract conditions.\n\n### Issues Identified\n- No vulnerabilities were found in the contract logic.\n\n<final>\n### Vulnerability: Not Vulnerable  \n### Explanation: The contract correctly enforces constraints on transaction type, amount, receiver, fee, close-remainder-to, and rekey-to fields. No dangerous operations or unchecked conditions are present.  \n### Risk: No significant risk identified.  \n</final>"
+    },
+    {
+      "file": "pyteal25.json",
+      "ground_truth": "no vuln",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "<final>\nThe contract allows only the admin to delete the application but allows anyone to grant access, which increases the access count without requiring admin approval.\n\n### Vulnerability: Arbitrary update  \n### Explanation: The `grant_access` method allows any user (not just the admin) to increase the access count. This could lead to an inflation of access counts, potentially undermining the intended access control logic if the count is used for authorization decisions elsewhere.  \n### Risk: Medium - The contract's integrity could be compromised through unauthorized manipulation of access counts, which may affect downstream logic relying on accurate access tracking.\n</final>"
+    },
+    {
+      "file": "pyteal26.json",
+      "ground_truth": "rekey_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract enforces a group of two transactions: a payment and an asset transfer, each with specific constraints.\n### Vulnerability: Not Vulnerable\n### Explanation: The contract checks both transactions' types, amounts, fees, receivers, and ensures no rekeying or unexpected closure of funds. There are no known exploitable vulnerabilities based on the provided logic.\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal27.json",
+      "ground_truth": "rekey_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "### Summary:\nThe contract is a signature mode PyTeal program that approves an asset transfer transaction under specific conditions. It checks that the transaction group size is exactly one, the transaction type is an asset transfer, the asset is sent to a fixed address with a specific amount, the fee is within a limit, and that the asset_close_to field is set to the zero address.\n\n### Block-by-block analysis:\n\n- **Group size check (`group_size_check`)**:\n  - Ensures that only one transaction is in the group (`Global.group_size() == Int(1)`).\n  - This is safe and prevents multi-transaction manipulation.\n\n- **Transaction checks (`txn_0_checks`)**:\n  - `Gtxn[0].type_enum() == TxnType.AssetTransfer`: Ensures the transaction is an asset transfer.\n  - `Gtxn[0].asset_receiver() == Addr(\"CVEFVMGWLPFOGLQKO4BPXGAEOY3QQNCHV2I4TK7TFS7RKQM4AGUW74RLLM\")`: Enforces a specific asset receiver address.\n  - `Gtxn[0].asset_amount() == Int(100)`: Enforces a specific asset amount.\n  - `Gtxn[0].fee() <= Int(1000)`: Limits transaction fee.\n  - `Gtxn[0].asset_close_to() == Global.zero_address()`: Ensures no closing of asset holdings.\n\n### Observations:\n- All transactions are properly validated, including asset receiver and amount.\n- The asset_close_to field is explicitly checked to ensure it's not set to a non-zero address.\n- There are no authorization checks or rekeying concerns since the contract is in signature mode.\n- No transaction receiver or close-remainder checks are missing.\n- No rekeying or fee manipulation vulnerabilities are apparent.\n\n<final>\n### Vulnerability: Not Vulnerable  \n### Explanation: The contract correctly validates asset transfer transactions including asset receiver, amount, fee, and ensures asset_close_to is zero address. No authorization or transaction handling vulnerabilities are present.  \n### Risk: No significant risk identified  \n</final>"
+    },
+    {
+      "file": "pyteal28.json",
+      "ground_truth": "rekey_to",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Payment Receiver\n### Explanation: The second transaction (`Gtxn[1]`) specifies a fixed receiver address (`\"2J4G2RUOFIX7BY5UIHLPDEYE3NHOHN6TKTXZXE6S3NPCE3BXKFCRQG7AMM\"`), but there is no validation that this address matches the expected receiver or is authorized to receive funds. An attacker could potentially manipulate the receiver address if it's not fixed, leading to funds being sent to unintended accounts. However, in this specific contract, the address is hardcoded, limiting the risk but still representing a lack of explicit validation for the receiver field.\n\n### Risk: Medium - If the hardcoded receiver is compromised or not intended, funds could be sent to incorrect accounts."
+    },
+    {
+      "file": "pyteal29.json",
+      "ground_truth": "rekey_to",
+      "predictions": [
+        "Unchecked Asset Close To"
+      ],
+      "response": "<final>\n### Vulnerability: Unchecked Asset Close To\n### Explanation: The third transaction (Gtxn[2]) is an asset transfer with a check that `asset_close_to()` is set to the zero address. However, this check is not sufficient to prevent a malicious user from closing the asset to another account if the transaction is manipulated. The asset_close_to field is not fully validated in the contract logic, allowing potential unauthorized closure of assets.\n### Risk: Medium - This could lead to unintended asset closure to unauthorized accounts, potentially causing loss or misallocation of assets.\n\n### Vulnerability: Unchecked Close Remainder To\n### Explanation: Both the second transaction (Gtxn[1]) and fourth transaction (Gtxn[3]) have checks that `close_remainder_to()` is set to the zero address. However, the contract does not verify that the sender of these transactions has sufficient Algos to ensure the remainder is correctly closed to zero. This could allow unintended behavior if the sender's balance is insufficient or if the transaction is altered.\n### Risk: Medium - This could lead to unintended distribution of remaining Algos to unintended accounts.\n\n### Vulnerability: Not Vulnerable\n### Explanation: While some checks are minimal or could be improved, no critical vulnerabilities like arbitrary updates or deletions, unchecked rekeying, or unchecked asset receivers are present.\n### Risk: No significant risk identified. The contract is generally secure but could benefit from additional validation checks on transaction parameters."
+    },
+    {
+      "file": "pyteal3.json",
+      "ground_truth": "arbitrary_delete",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "<final>\nThe contract allows unauthorized users to increment a global counter and lacks proper authorization checks for the delete operation.\n\n### Vulnerability: Arbitrary update\n### Explanation: The `increment_counter` logic allows any sender (except the creator) to increment the global counter without requiring any specific authorization beyond not being the creator. This could be exploited if the counter's value is used for decision-making in a way that benefits unauthorized users. Additionally, the contract allows deletion without any authorization checks.\n### Risk: Medium - Unauthorized users can manipulate the counter value, potentially affecting downstream logic relying on its integrity. The lack of authorization on deletion could allow unauthorized users to delete the contract.\n\n</final>"
+    },
+    {
+      "file": "pyteal30.json",
+      "ground_truth": "rekey_to",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThis contract enforces strict conditions for a group transaction of size 6, with detailed checks on each transaction's type, sender, receiver, amount, fees, and other parameters. It ensures no unauthorized rekeying or closure of funds.\n\n### Vulnerability: Not Vulnerable\n### Explanation: The contract verifies all transactions in the group, ensuring no unexpected behavior such as rekeying to arbitrary addresses, unintended closure of funds, or invalid receivers. Each transaction has sender and receiver checks, fee limits, and asset/payment type constraints.\n\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal31.json",
+      "ground_truth": "transaction_fee",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Payment Receiver\n### Explanation: The contract allows transactions to a hardcoded receiver address (`2YINOKV3CN6PLHYXTLECTB5V6YQWP2SXGGDJUY2CDXLVHB3GOHG4WKEVCU`) without verifying if the receiver is authorized or if the sender has the right to send funds to that address. This could be exploited if the hardcoded address is not properly maintained or if there is a mistake in the intended access control logic.\n### Risk: Medium - Unauthorized or unintended transfers could occur if the hardcoded receiver address is compromised or misconfigured."
+    },
+    {
+      "file": "pyteal32.json",
+      "ground_truth": "transaction_fee",
+      "predictions": [
+        "Unchecked Transaction Fee"
+      ],
+      "response": "<final>\nThis contract verifies a group of four transactions with specific conditions. The fourth transaction must always be valid, while the first three transactions must satisfy one of several mutually exclusive conditions. The contract checks for transaction types, amounts, recipients, and other constraints.\n\n### Vulnerability: Unchecked Transaction Fee\n### Explanation: The transaction fee check is only applied to transactions 1, 2, and 3 (`Gtxn[0]`, `Gtxn[1]`, `Gtxn[2]`). Transaction 4 (`Gtxn[3]`) does not have a fee limit check (`Gtxn[3].fee() <= Int(1000)` is missing). This could allow attackers to include a high-fee transaction in position 4, potentially leading to denial of service or economic loss if the contract approves it unintentionally.\n\n### Risk: Medium - An attacker could exploit this oversight to incur unnecessary fees, potentially leading to transaction execution failures or economic waste.\n</final>"
+    },
+    {
+      "file": "pyteal33.json",
+      "ground_truth": "transaction_fee",
+      "predictions": [
+        "Unchecked Transaction Fee"
+      ],
+      "response": "<final>\nThe contract checks various transaction parameters for three transactions in a group, but it lacks fee checks in one of the transactions.\n### Vulnerability: Unchecked Transaction Fee\n### Explanation: The second transaction (txn2) does not verify that the transaction fee is within a reasonable limit, potentially allowing an attacker to consume excessive resources by setting a high fee.\n### Risk: Medium - An attacker could exploit this to increase transaction costs unnecessarily, leading to higher fees for users and potential denial of service if the network limits are exceeded.\n</final>"
+    },
+    {
+      "file": "pyteal34.json",
+      "ground_truth": "transaction_fee",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "### Vulnerability: Not Vulnerable  \n### Explanation: The contract correctly validates the type, receiver, fee, and other properties of each transaction in the group. It ensures that the asset transfer and opt-in transactions have appropriate constraints, including zero close-to and rekey-to addresses. The payment transactions also enforce strict receiver addresses and fee limits. There are no unchecked parameters or authorization issues identified in the code.  \n### Risk: No significant risk identified"
+    },
+    {
+      "file": "pyteal35.json",
+      "ground_truth": "transaction_fee",
+      "predictions": [
+        "Unchecked Transaction Fee"
+      ],
+      "response": "<final>\nThe contract checks various transaction fields in three different logic blocks, but has inconsistencies in handling the fee limit in txn2.\n\n### Vulnerability: Unchecked Transaction Fee\n### Explanation: In txn2, the transaction fee is not checked, allowing a transaction with a higher fee than intended to pass validation. This could be exploited by malicious actors to manipulate fees beyond the intended limit.\n### Risk: Medium - Allows potential fee manipulation, though not as critical as other vulnerabilities like rekeying or asset redirection.\n</final>"
+    },
+    {
+      "file": "pyteal36.json",
+      "ground_truth": "Unchecked_Asset_Receiver",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Asset Receiver  \n### Explanation: The contract uses `Txn.accounts[1]` as the `asset_receiver` in the inner transaction without verifying that the account is authorized or valid. An attacker could exploit this by providing a malicious account as `accounts[1]`, potentially transferring assets to unintended recipients.  \n### Risk: High, as it allows unauthorized asset transfers to arbitrary addresses."
+    },
+    {
+      "file": "pyteal37.json",
+      "ground_truth": "Unchecked_Asset_Receiver",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Asset Receiver  \n### Explanation: In the `handle_transfer` logic, the contract uses `Txn.accounts[1]` as the `asset_receiver` without validating that it is a legitimate account. This allows any account specified as `Txn.accounts[1]` to receive assets, potentially enabling malicious actors to redirect assets to unintended recipients if they can control or influence `Txn.accounts[1]`.  \n### Risk: High - This could lead to unauthorized asset transfers to attacker-controlled accounts.  \n\n### Vulnerability: Unchecked Payment Receiver  \n### Explanation: While the contract is focused on asset transfers, it does not verify the legitimacy or authorization of `Txn.accounts[1]` in the context of the inner transaction. This mirrors the unchecked receiver pattern applicable to payments as well, if the contract were extended to handle payments.  \n### Risk: High - Could allow attackers to redirect funds to unintended recipients.  \n\n### Vulnerability: Unchecked Transaction Fee  \n### Explanation: The contract does not verify that the fees paid by the transaction sender are appropriate or within expected limits. If the contract executes expensive operations (like multiple inner transactions), an attacker could exploit low fees to cause denial-of-service or drain the sender's funds.  \n### Risk: Medium - Could lead to denial-of-service or excessive fee exploitation if the contract is used in high-traffic scenarios.  \n\n### Vulnerability: Not Vulnerable  \n### Explanation: The contract includes proper authorization checks for update and delete operations (`Assert(Txn.sender() == App.globalGet(creator_key))`). Additionally, the asset transfer logic is generally safe within the constraints of its design.  \n### Risk: No significant risk identified"
+    },
+    {
+      "file": "pyteal38.json",
+      "ground_truth": "Unchecked_Asset_Receiver",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "<final>\nThis contract allows asset transfers and checks asset balances stored globally. It restricts contract updates and deletions to the creator only.\n\n### Vulnerability: Unchecked Asset Receiver\n### Explanation: The contract allows any account to be set as the receiver of an asset transfer (`Txn.accounts[1]`) without verifying if the receiver is authorized or validated in any way. An attacker could potentially exploit this to redirect assets to unintended accounts by spoofing the receiver address in the transaction group.\n### Risk: Medium - This could lead to loss of funds or incorrect tracking of asset balances if malicious actors manipulate the receiver field.\n</final>"
+    },
+    {
+      "file": "pyteal39.json",
+      "ground_truth": "Unchecked_Asset_Receiver",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "<final>\nThis contract allows asset exchanges via grouped transactions but lacks validation on asset receivers and payment destinations, potentially enabling unauthorized asset transfers.\n\n### Vulnerability: Unchecked Asset Receiver\n### Explanation: In the `on_exchange_1`, `on_exchange_2`, and `on_exchange_3` blocks, the contract stores asset amounts in global state using `Txn.accounts[1]`, `Txn.accounts[2]`, and `Txn.accounts[3]` respectively without verifying that these accounts are authorized. This allows an attacker to manipulate the `accounts` field in the transaction to steal assets by redirecting them to unauthorized accounts.\n\n### Risk: High - Unauthorized asset redistribution could lead to loss or theft of user funds.\n</final>"
+    },
+    {
+      "file": "pyteal4.json",
+      "ground_truth": "arbitrary_delete",
+      "predictions": [
+        "Arbitrary delete"
+      ],
+      "response": "<final>\n### Vulnerability: Arbitrary delete\n### Explanation: The contract allows deletion of the application without requiring authorization. The `delete_contract` block approves deletion (`Approve()`) unconditionally when `OnComplete.DeleteApplication` is called. This allows any user to delete the contract, regardless of their permissions or intentions.\n### Risk: Critical, as it enables unauthorized deletion of the smart contract, potentially leading to loss of control over assets or logic managed by the contract.\n</final>"
+    },
+    {
+      "file": "pyteal40.json",
+      "ground_truth": "Unchecked_Asset_Receiver",
+      "predictions": [
+        "Unchecked Asset Receiver"
+      ],
+      "response": "<final>\nThis contract implements a timed asset exchange mechanism where the owner can control the timing of asset exchanges. The contract allows for application creation, opt-in, close-out, update, and deletion by the owner, and supports three separate exchange operations.\n\n### Vulnerability: Unchecked Asset Receiver\n### Explanation: In `on_exchange_1`, `on_exchange_2`, and `on_exchange_3`, the contract stores the amount of the asset transferred in global state using `Txn.accounts[1]`, `Txn.accounts[2]`, and `Txn.accounts[3]` respectively, but does not verify that these accounts are valid or authorized to receive the asset. An attacker could potentially manipulate the group transaction to set arbitrary accounts as receivers, leading to unauthorized asset tracking or misallocation.\n\n### Risk: Medium - This vulnerability allows for potential misuse of asset tracking logic by injecting malicious accounts into the transaction group, which could mislead the contract's state management and asset tracking.\n</final>"
+    },
+    {
+      "file": "pyteal41.json",
+      "ground_truth": "Unchecked_Payment_Receiver",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "<final>\nThe contract allows a payment to be processed in a group transaction but stores the receiver and amount in global state without any checks on the sender's authorization or validation of the payment's legitimacy.\n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: The contract stores the receiver (`Txn.accounts[1]`) and amount (`Txn.amount()`) of a payment transaction directly into global state without verifying that the sender of the payment transaction is authorized to do so or that the payment is legitimate. An attacker could manipulate the group transaction to set an arbitrary receiver address by placing themselves as `accounts[1]`, leading to potential misuse of funds.\n\n### Risk: High. This could allow unauthorized users to redirect funds to arbitrary addresses, undermining the integrity and security of the contract's payment handling.\n</final>"
+    },
+    {
+      "file": "pyteal42.json",
+      "ground_truth": "Unchecked_Payment_Receiver",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Vulnerability: Unchecked Payment Receiver  \n### Explanation: The contract uses `Gtxn[1].accounts[1]` as the receiver address in the inner payment transaction during the `handle_withdraw` function. However, it does not verify that this address matches an intended recipient (e.g., the user requesting withdrawal). An attacker could manipulate the `Gtxn[1]` transaction to redirect funds to an arbitrary address, potentially stealing funds from the pension fund.  \n### Risk: High  \nThe vulnerability allows unauthorized redirection of funds if the second transaction in a group transaction is crafted maliciously. This could lead to loss of funds stored in the pension contract."
+    },
+    {
+      "file": "pyteal43.json",
+      "ground_truth": "Unchecked_Payment_Receiver",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "### Summary:\nThis PyTeal contract implements a pension system where a company can contribute funds, set pension amounts, and withdraw funds to users. The contract uses global state keys (`Company`, `Fund`, `Pension`) and defines various application handlers (`init`, `contribute`, `set_pension`, `handledelete`, `withdraw`). It includes transaction group handling in the `withdraw` method.\n\n### Block-by-Block Analysis:\n\n#### `init` Block:\n- Sets global state keys (`Company`, `Fund`) with the creator’s address and initializes `Fund` to `0`.\n- No vulnerability here.\n\n#### `contribute` Block:\n- Ensures only the company can contribute funds.\n- Adds transaction amount to the fund.\n- Secure authorization (`Assert(Txn.sender() == App.globalGet(company_key))`).\n\n#### `set_pension` Block:\n- Ensures only the company can set pension amounts.\n- Converts the second argument to integer (`Btoi(Txn.application_args[1])`) and sets it as global `Pension`.\n- Vulnerable pattern: **No bounds checking** on the pension amount (`Btoi(Txn.application_args[1])`). This could allow setting very large values that may cause overflow or logic issues later.\n\n#### `handledelete` Block:\n- Ensures only the company can delete the app.\n- No vulnerability.\n\n#### `withdraw` Block:\n- Groups transaction (`Global.group_size() == Int(2)`).\n- Ensures only the company can initiate withdrawal (`Gtxn[0].sender()`).\n- Checks that fund balance is sufficient (`App.globalGet(fund_key) >= App.globalGet(pension_key)`).\n- Subtracts pension amount from fund.\n- Sends payment to `Gtxn[1].receiver()` via InnerTxn.\n- **Critical vulnerability**: The receiver address (`Gtxn[1].receiver()`) is directly used without validation. An attacker could craft a second transaction in the group with any arbitrary receiver address and drain funds.\n\n#### `Cond` Block:\n- Maps transaction types to handlers.\n- `OptIn` maps to `withdraw`—this is incorrect since `OptIn` is typically used when an account joins the app. Mapping `withdraw` logic to `OptIn` is **confusing and dangerous**, as it might trigger withdrawal logic unintentionally during opt-in.\n\n### Final Judgment:\n\n<final>\n### Summary:\nThe contract allows a company to contribute funds, set pension amounts, and withdraw funds to users. It uses global state keys and transaction groups for withdrawals.\n\n### Vulnerability: Unchecked Payment Receiver  \n### Explanation: In the `withdraw` method, the receiver address is taken directly from `Gtxn[1].receiver()` without any validation. This allows the sender to specify an arbitrary receiver address in the second transaction of the group, leading to potential fund theft.\n\n### Risk: High  \n</final>"
+    },
+    {
+      "file": "pyteal44.json",
+      "ground_truth": "Unchecked_Payment_Receiver",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "<final>\nThe contract allows only the admin to deposit funds and set a recipient, but lacks proper validation and authorization in the payment logic, allowing potential misuse.\n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: The `pagamento` function executes a payment to `Gtxn[1].receiver()`, which is not validated against any contract state or admin approval. An attacker could trick the admin into triggering this logic with a second transaction that sends funds to an unintended recipient.\n### Risk: High - Unauthorized funds transfer could occur if the admin is tricked into initiating a group transaction with a malicious second transaction.\n</final>"
+    },
+    {
+      "file": "pyteal45.json",
+      "ground_truth": "Unchecked_Payment_Receiver",
+      "predictions": [
+        "Unchecked Payment Receiver"
+      ],
+      "response": "<final>\nThis contract allows the owner to add funds to a global counter and distribute funds through a grouped transaction. It checks ownership and fund availability before distribution. \n\n### Vulnerability: Unchecked Payment Receiver\n### Explanation: In the `distribute_funds` block, there's no validation of the receiver address in the second transaction (`Gtxn[1]`). This could allow funds to be sent to unintended recipients if the grouped transaction includes an incorrect receiver address. The owner has control, but no check ensures the payment goes to the intended address.\n### Risk: High - Funds could be incorrectly distributed to unauthorized addresses.\n</final>"
+    },
+    {
+      "file": "pyteal5.json",
+      "ground_truth": "arbitrary_delete",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "<final>\n### Vulnerability: Arbitrary update\n### Explanation: The contract allows the creator to update the application using the `on_completion() == OnComplete.UpdateApplication` condition without additional constraints or validation. This could allow an attacker with access to the creator's private key to modify the application's logic arbitrarily, potentially leading to unintended behavior or exploitation.\n### Risk: High - The application's logic can be modified after deployment, which could introduce malicious behavior or compromise the integrity of the voting system.\n</final>"
+    },
+    {
+      "file": "pyteal6.json",
+      "ground_truth": "arbitrary_update",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "### Summary of Contract Purpose and Architecture\n\nThis PyTeal contract is designed to manage multi-transaction operations under admin control on the Algorand blockchain. The contract initializes itself with an admin, tracks transaction counts, allows admin updates, and supports deletion. It includes logic for handling an \"execute_operation\" command involving three grouped transactions: two Payments and one ApplicationCall.\n\n---\n\n### Block-by-Block Analysis\n\n#### 1. `initialize_application`:\n- Sets the admin to the creator (`Txn.sender()`) and initializes a transaction count.\n- Uses `Approve()` to approve the initialization transaction.\n- **Secure** as long as only the creator can initialize the app.\n\n#### 2. `handle_operation`:\n- Checks that the group consists of exactly three transactions (`Global.group_size() == Int(3)`).\n- Confirms that transactions 0 and 2 are Payments to the contract's address.\n- Confirms transaction 1 is an ApplicationCall with the argument `\"execute_operation\"`.\n- Increments the transaction count and approves the transaction.\n- **Potential issue**: This logic allows any user to execute `handle_operation` as long as they provide the correct grouped transactions. There's **no authorization check** to ensure only the admin can perform this operation.\n\n#### 3. `update_admin`:\n- Changes the admin address by requiring `on_completion == OnComplete.UpdateApplication`.\n- Takes the new admin address from `Txn.application_args[1]`.\n- **Secure**, as UpdateApplication is only allowed via a specific transaction type and requires admin privileges by default.\n\n#### 4. `delete_application`:\n- Allows deletion only if the sender is the admin.\n- **Secure**, as it enforces admin-only deletion.\n\n#### 5. `program`:\n- Routes transactions based on `on_completion` and application arguments.\n- The conditional routing is well-structured, but the `handle_operation` branch lacks authorization checks.\n\n---\n\n### Identified Issues\n\n- **Missing Authorization Check in `handle_operation`**: The `handle_operation` logic allows any user to execute this operation as long as they submit the required grouped transactions. There's no check to ensure the sender is the admin or authorized to perform the operation.\n- **Evidence**: Line where `handle_operation` is defined uses `Cond(...)` without checking `Txn.sender() == App.globalGet(admin_key)`.\n\n---\n\n### Final Judgment\n\n<final>\n### Vulnerability: Arbitrary update  \n### Explanation: The contract allows any user to execute the `handle_operation` logic without verifying that the sender is the admin. This could allow unauthorized users to trigger operations that increment the transaction count or otherwise alter contract state.  \n### Risk: Medium - Unauthorized users could manipulate the contract state or trigger unintended behavior through crafted transactions.\n</final>"
+    },
+    {
+      "file": "pyteal7.json",
+      "ground_truth": "arbitrary_update",
+      "predictions": [
+        "Arbitrary delete"
+      ],
+      "response": "### Vulnerability: Arbitrary delete  \n### Explanation: The contract allows the admin to delete the application without any additional constraints or verification. This could lead to unauthorized deletion if the admin key is compromised or if there is no mechanism to prevent accidental deletion. The `delete_application` block approves the deletion transaction solely based on the sender matching the admin key, which might be insufficient in certain scenarios.  \n### Risk: Medium, as it allows for potential loss of contract functionality if the admin key is compromised."
+    },
+    {
+      "file": "pyteal8.json",
+      "ground_truth": "arbitrary_update",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n### Vulnerability: Not Vulnerable\n### Explanation: The contract allows updates to the application and logs messages but does not perform any operations that could be exploited. No authorization checks are bypassed, and no unsafe transaction handling is present.\n### Risk: No significant risk identified\n</final>"
+    },
+    {
+      "file": "pyteal9.json",
+      "ground_truth": "arbitrary_update",
+      "predictions": [
+        "Arbitrary update"
+      ],
+      "response": "### Vulnerability: Arbitrary update  \n### Explanation: The contract allows any user to update the global state value `global_key` without verifying if the sender is authorized to do so. This is demonstrated by the `update` block, where `App.globalPut(global_key, Txn.application_args[0])` is executed unconditionally whenever the contract receives an update application transaction. Since there is no authorization check on the sender, attackers can manipulate the stored value arbitrarily.  \n### Risk: High - Unauthorized users can modify critical global state values, leading to data corruption or misuse."
+    }
+  ]
+}

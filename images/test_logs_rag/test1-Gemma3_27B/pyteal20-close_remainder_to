@@ -1,0 +1,168 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart signature (stateless)
+
+### Contract Purpose
+This contract is a stateless payment splitter that distributes funds between two predefined addresses according to a fixed ratio, or allows the sender to reclaim remaining funds after a timeout. It ensures secure, low-fee transactions with no rekeying.
+
+### Functional Description
+1. The contract validates a single payment transaction or a group of two payment transactions.
+2. For all cases, the contract checks that the transaction type is Payment, the fee is below a template limit, and the rekey-to field is the zero address.
+3. If the group size is exactly two transactions (grouped payments):
+   - Transaction 0 checks: sender matches the sender of transaction 1, receiver equals template receiver 1, and amount equals the template minimum payment.
+   - Transaction 1 checks: receiver equals template receiver 2.
+   - The contract verifies that the amount of transaction 0 equals the total amount of both transactions multiplied by the template numerator and divided by the template denominator.
+   - Both transactions must have their close-remainder-to field set to the zero address.
+4. If the group size is not two (i.e., a single transaction):
+   - The contract checks that the receiver is the zero address, the amount is zero, and the first valid round is greater than the template timeout. This allows the sender to close the account after the timeout.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Close Remainder To** (0.9221)
+        - **Description:** The 'Unchecked Close Remainder To' vulnerability occurs when a stateless smart contract (logic signature) does not explicitly verify that the `close_remainder_to` field is either set to `Global.zero_address()` or to a known, explicitly allowed address in **every** payment transaction it authorizes. Without such checks, attackers may redirect the remaining account balance to arbitrary destinations.
+        - **Preconditions:** Applicable to smart signatures that authorize payment transactions.
+        - **Security check to perform**: Ensure that ** all Payment transactions** authorized by the stateless contract explicitly validate `close_remainder_to` to prevent closure of the account. This typically means verifying it equals `Global.zero_address()`, or—if closing is an intended feature—only allowing specific, trusted addresses. Important: The absence of a check does **not** imply safety. A field is considered unchecked unless it is **explicitly validated** in every applicable transaction. Relying on defaults or omissions is not secure.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    split_core = And(
+        Txn.type_enum() == TxnType.Payment,
+        # it does not restrict the `close_remainder_to` field in a Payment transaction.
+        Txn.fee() < tmpl_fee,
+        Txn.rekey_to() == Global.zero_address(),
+    )
+          ```
+      
+    2. **Unchecked Transaction Fee** (0.9054)
+        - **Description:** The 'Unchecked Transaction Fee' vulnerability occurs when an Algorand smart contract does not properly validate the transaction fee. Attackers exploiting the contract by submitting transactions with abnormally high fees, potentially draining funds from other users.
+        - **Preconditions:** Applicable to smart signatures (delegated smart signatures or contract accounts) that authorize transactions where the sender is the victim of the excessive fee.
+        - **Security check to perform**: Ensure that **all critical transactions** (Asset Transfers, Payments, Application Calls) has cap fees.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    def validate_asset_transfer(idx, aid, recv, amt):
+        return And(
+            Gtxn[idx].type_enum() == TxnType.AssetTransfer,
+            Gtxn[idx].xfer_asset() == aid,
+            Gtxn[idx].asset_receiver() == recv,
+            Gtxn[idx].asset_close_to() == Global.zero_address(),
+            Gtxn[idx].rekey_to() == Global.zero_address(),
+	    # no check on the fee
+        )
+          ```
+      
+    3. **Unchecked Asset Close To** (0.9028)
+        - **Description:** The 'Unchecked Asset Close To' vulnerability occurs when a smart signatures does not check that the `asset_close_to` field is either `Global.zero_address()` or an explicitly trusted address. Without this, an attacker may drain remaining asset holdings to their own account.
+        - **Preconditions:** Applies to smart signatures that authorize asset transfer transactions.
+        - **Security check to perform**: Validate that all authorized asset transfers ensure `asset_close_to` is either `Global.zero_address()` or a predefined safe address.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    tx5_check = And(
+        Gtxn[4].type_enum() == TxnType.AssetTransfer,
+        # it does not restrict the `asset_close_to` field in a AssetTransfer transaction. 
+        Gtxn[4].fee() <= Int(2000),  
+        Gtxn[4].rekey_to() == Global.zero_address(), 
+        Gtxn[4].xfer_asset() != Int(0),  
+        Gtxn[4].asset_amount() > Int(10), 
+    )
+          ```
+      
+    4. **Unchecked Rekey to** (0.9005)
+    
+    5. **Unchecked Payment Receiver** (0.8972)
+    
+    6. **Arbitrary delete** (0.8888)
+    
+    7. **Unchecked Asset Receiver** (0.8880)
+    
+    8. **Arbitrary update** (0.8860)
+    
+
+--------------------------------------------------Audit--------------------------------------------------```python
+from pyteal import *
+
+tmpl_fee = Int(1000)
+tmpl_rcv1 = Addr("6ZHGHH5Z5CTPCF5WCESXMGRSVK7QJETR63M3NY5FJCUYDHO57VTCMJOBGY")
+tmpl_rcv2 = Addr("7Z5PWO2C6LFNQFGHWKSK5H47IQP5OJW2M3HA2QPXTY3WTNP5NU2MHBW27M")
+tmpl_own = Addr("5MK5NGBRT5RL6IGUSYDIX5P7TNNZKRVXKT6FGVI6UVK6IZAWTYQGE4RZIQ")
+tmpl_ratn = Int(1)
+tmpl_ratd = Int(3)
+tmpl_min_pay = Int(1000)
+tmpl_timeout = Int(3000)
+
+
+def split(
+    tmpl_fee=tmpl_fee,
+    tmpl_rcv1=tmpl_rcv1,
+    tmpl_rcv2=tmpl_rcv2,
+    tmpl_ratn=tmpl_ratn,
+    tmpl_ratd=tmpl_ratd,
+    tmpl_min_pay=tmpl_min_pay,
+    tmpl_timeout=tmpl_timeout,
+):
+    split_core = And(
+        Txn.type_enum() == TxnType.Payment,
+        Txn.fee() < tmpl_fee,
+        Txn.rekey_to() == Global.zero_address(),
+    )
+
+    split_transfer = And(
+        Gtxn[0].sender() == Gtxn[1].sender(),
+        Txn.close_remainder_to() == Global.zero_address(),
+        Gtxn[0].receiver() == tmpl_rcv1,
+        Gtxn[1].receiver() == tmpl_rcv2,
+        Gtxn[0].amount()
+        == ((Gtxn[0].amount() + Gtxn[1].amount()) * tmpl_ratn) / tmpl_ratd,
+        Gtxn[0].amount() == tmpl_min_pay,
+    )
+
+    split_close = And(
+        Txn.receiver() == Global.zero_address(),
+        Txn.amount() == Int(0),
+        Txn.first_valid() > tmpl_timeout,
+    )
+
+    split_program = And(
+        split_core, If(Global.group_size() == Int(2), split_transfer, split_close)
+    )
+
+    return split_program
+
+
+if __name__ == "__main__":
+    print(compileTeal(split(), mode=Mode.Signature, version=2))
+```
+
+<think>
+The contract is a stateless smart signature designed to split a payment between two recipients (`tmpl_rcv1` and `tmpl_rcv2`). It operates in a two-transaction group. The first transaction sends funds to `tmpl_rcv1` and the second to `tmpl_rcv2`. The `split_core` condition ensures the transaction type is Payment, the fee is below a threshold, and rekeying is disabled. The `split_transfer` condition validates the sender, receiver, and amount for both transactions. The `split_close` condition handles the case where the group size is not 2, effectively closing the account.
+
+Now, let's check for the suggested vulnerabilities:
+
+1. **Unchecked Close Remainder To:** The code explicitly checks `Txn.close_remainder_to() == Global.zero_address()` within the `split_transfer` condition. This ensures that any remaining funds are not redirected to an arbitrary address when the split transaction is executed.
+
+2. **Unchecked Transaction Fee:** The code checks `Txn.fee() < tmpl_fee`. This limits the maximum fee that can be paid, preventing excessive fees.
+
+3. **Unchecked Asset Close To:** This vulnerability is not applicable as the contract only deals with native Algorand transactions (Payments), not asset transfers.
+
+4. **Unchecked Rekey to:** The code explicitly checks `Txn.rekey_to() == Global.zero_address()`, preventing rekeying.
+
+5. **Unchecked Payment Receiver:** The code checks the receiver addresses against `tmpl_rcv1` and `tmpl_rcv2` within the `split_transfer` condition.
+
+6. **Arbitrary delete:** Not applicable to this contract.
+
+7. **Unchecked Asset Receiver:** Not applicable to this contract.
+
+8. **Arbitrary update:** Not applicable to this contract.
+
+The logic for splitting the payment seems correct, and the conditions appear to enforce the intended behavior. However, the amount calculation `Gtxn[0].amount() == ((Gtxn[0].amount() + Gtxn[1].amount()) * tmpl_ratn) / tmpl_ratd` seems flawed. It requires `Gtxn[0].amount()` to equal a calculated value based on both transaction amounts, but the calculation doesn't seem to account for the total amount being split. This could lead to the transaction failing if the amounts don't satisfy this condition. Also, the `split_close` condition seems to be intended for handling invalid group sizes, but it doesn't prevent a malicious actor from sending a single payment transaction to the contract, which would then be rejected.
+</think>
+
+<final>
+This smart signature splits a payment between two recipients, enforcing fee limits and preventing rekeying and arbitrary close-to addresses.
+### Vulnerability: Flawed Amount Calculation
+### Explanation: The amount calculation in `split_transfer` is incorrect and likely to cause transactions to fail. It requires the amount of the first transaction to equal a specific value derived from both transactions, which doesn't align with a simple split scenario.
+### Risk: Medium - Transactions will likely fail, rendering the contract unusable.
+### Mitigation: Correct the amount calculation to ensure the split is performed as intended. For example, `Gtxn[0].amount() == (Gtxn[0].amount() + Gtxn[1].amount()) / tmpl_ratd` and `Gtxn[1].amount() == (Gtxn[0].amount() + Gtxn[1].amount()) / tmpl_ratd` if an equal split is desired.
+
+### Vulnerability: Unhandled Single Transaction
+### Explanation: If a single payment transaction is sent to the contract, it will fall into the `split_close` condition, which only checks the timeout. This doesn't prevent a malicious actor from attempting to exploit the contract with a single transaction.
+### Risk: Low - The transaction will likely fail due to the amount and receiver conditions in `split_close`, but a more robust check is recommended.
+### Mitigation: Add an explicit check for `Global.group_size() == Int(2)` at the beginning of the `split_program` to immediately reject any transaction that isn't part of a two-transaction group.
+</final>

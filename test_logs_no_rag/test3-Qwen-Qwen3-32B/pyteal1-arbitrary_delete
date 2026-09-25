@@ -1,0 +1,30 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. The approval program handles OnComplete.DeleteApplication and OnComplete.OptIn transactions. When a delete is attempted, it logs and returns true. For OptIn, it logs and returns true. Then there's a check on transaction amount, logging whether it's above or below 1000 microalgos. Finally, it checks if rekey_to is zero address; if not, it returns false.
+
+Now, applying the vulnerability checklist. 
+
+First, Unchecked Transaction Fee: The contract is a stateful contract (since it handles OnComplete.DeleteApplication/OptIn). But the checklist says this applies only to smart signatures (stateless) authorizing transactions. Since this is a stateful contract, maybe this isn't applicable. But wait, the approval program is part of a stateful contract, so maybe the fee check isn't required here. The vulnerability applies to smart signatures, not stateful contracts. So no issue here.
+
+Second, Unchecked Close Remainder To: Applies to stateless contracts authorizing payments. This contract is stateful, so maybe not applicable. But the approval program allows payments? Wait, the code doesn't check TxnType.Payment. The approval program returns true for OptIn and DeleteApplication, but for other transactions, like payments, it might be allowed. Wait, the code's approval program returns true at the end unless rekey_to is non-zero. So if someone sends a payment transaction to this contract account, it would be approved as long as rekey_to is zero. But the contract doesn't check close_remainder_to. Since this is a stateful contract, the Unchecked Close Remainder To vulnerability applies only to stateless contracts. So maybe not applicable here.
+
+Third, Unchecked Asset Close To: Similar to above. The contract doesn't handle asset transfers, so this isn't applicable.
+
+Fourth, Unchecked Rekey To: The contract checks if rekey_to is zero address. If not, returns false. So this is handled. So no vulnerability here.
+
+Fifth, Unchecked Payment Receiver: The contract allows any payment transaction as long as rekey_to is zero. But the approval program doesn't restrict the receiver address. Since the contract allows payments to any receiver, this could be a problem. However, the vulnerability applies only when the contract authorizes fund transfers (like escrows). If this contract is meant to accept payments to itself, maybe it's okay. But if it's allowing arbitrary payments to any receiver, that's a risk. Wait, the approval program returns true for any transaction type except when rekey_to is non-zero. So if someone sends a payment to this contract account, it's allowed. But the contract doesn't check the receiver. Since the receiver would be the contract account itself (as the sender is the user, and the receiver is the contract), maybe it's okay. Wait, no. If the transaction is a payment from someone else to this contract account, then the receiver is the contract's address. So the contract is allowing payments to itself, which is normal. So maybe the Unchecked Payment Receiver isn't applicable here because the receiver is fixed as the contract's address. So no vulnerability here.
+
+Sixth, Unchecked Asset Receiver: The contract doesn't handle asset transfers, so no issue.
+
+Seventh, Arbitrary Update: The approval program doesn't handle OnComplete.UpdateApplication. So no vulnerability here.
+
+Eighth, Arbitrary Delete: The contract allows DeleteApplication if the transaction is initiated. But there's no check on who can delete the application. The approval program just allows it when the OnComplete is DeleteApplication. So this is a vulnerability. The delete is allowed without any authorization checks. The vulnerability applies to stateful contracts handling DeleteApplication. The code allows anyone to delete the application, which is a critical issue.
+
+So the main vulnerability here is Arbitrary Delete, since there's no restriction on who can call DeleteApplication. The code checks if the OnCompletion is DeleteApplication and application_id is not zero, but doesn't verify that the sender is the creator or an admin. So any user can delete the application, leading to loss of control.
+</think>
+
+<final>
+### Vulnerability: Arbitrary Delete
+### Explanation: The contract allows any user to delete the application by setting OnComplete.DeleteApplication without verifying that the sender is the creator or an authorized admin. This can be exploited to remove the contract from the blockchain, causing denial of service or loss of control.
+### Risk: Critical - Unauthorized deletion of the application can lead to complete loss of functionality and data.
+</final>

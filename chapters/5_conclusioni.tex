@@ -1,0 +1,43 @@
+\section{Sintesi del Lavoro e Contributi Principali}
+Questa tesi ha affrontato la sfida della rilevazione automatizzata di vulnerabilità negli Smart Contract Algorand (PyTeal), un ecosistema applicativo finora ampiamente trascurato dalla letteratura scientifica dominante. 
+L'obiettivo primario è stato esplorare come superare le limitazioni dei Large Language Models generalisti, i quali, se applicati in modalità \textit{Zero-Shot}, tendono a generare output imprecisi e "allucinazioni".
+
+Per risolvere questa criticità, abbiamo progettato una pipeline modulare e \textit{LLM-Centric} che valuta l'impatto di due approcci metodologici distinti: l'adattamento del dominio tramite \textbf{Fine-Tuning supervisionato} e l'iniezione di contesto dinamico tramite \textbf{Retrieval-Augmented Generation (RAG)}.
+
+\section{Risultati Conseguiti}
+I risultati sperimentali dimostrano chiaramente che l'impatto e la necessità di queste tecniche variano in modo significativo in funzione della scala e della maturità del modello linguistico adottato.
+
+Per i modelli SOTA di grossa taglia (come DeepSeek V3.2) non necessitano di un addestramento specifico tramite Fine-Tuning. La loro vasta conoscenza parametrica e le elevate capacità di ragionamento nativo fanno sì che sia sufficiente affiancare il RAG per ottenere prestazioni eccellenti. Attraverso il solo \textit{In-Context Learning} basato sugli esempi recuperati dinamicamente, DeepSeek V3.2 ha raggiunto un F1-Score di 0.94 e una Recall quasi perfetta (97.5\%).
+
+Al contrario, il \textbf{Fine-Tuning} è indispensabile in uno scenario ben specifico: l'utilizzo di modelli locali di taglia media (32B parametri) in ambienti \textit{on-premise}. Per questi modelli, il RAG da solo non è sufficiente a colmare le lacune di comprensione della sintassi PyTeal. Tuttavia, applicando il Fine-Tuning per infondere la conoscenza di base e combinandolo successivamente con il RAG, il modello locale \texttt{QwQ-32B} ha raggiunto un eccellente F1-Score di \textbf{0.90}. 
+
+Dai risultati ottenuti possiamo rispondere alle seguenti domande di ricerca.
+
+\subsection{Sull'utilità del Fine-Tuning} 
+In linea di massima, i risultati dimostrano che l'addestramento specifico tramite Fine-Tuning non è strettamente necessario, se non in scenari applicativi molto ristretti. La sua utilità si concretizza esclusivamente quando si è vincolati all'uso di modelli locali di taglia media (es. 32B parametri) in ambienti privati (\textit{on-premise}), dove è indispensabile colmare una profonda lacuna sintattica di base del modello. Tuttavia, i dati evidenziano chiaramente che i modelli di grossa taglia (SOTA) ottengono risultati nettamente superiori sfruttando semplicemente l'\textit{In-Context Learning}. Possedendo già un'eccellente capacità di ragionamento nativa, per questi modelli massivi il dispendioso processo di Fine-Tuning risulta meno efficiente rispetto a un \textit{prompting} contestuale ben ingegnerizzato.
+
+\subsection{Sull'utilità del RAG} 
+Al contrario, il \textit{Retrieval-Augmented Generation} si conferma uno strumento assolutamente utile per una pipeline di audit. I modelli linguistici, per quanto grandi e potenti, tendono a ragionare in modo statistico e restano proni alle allucinazioni se interrogati in assenza di riferimenti concreti. Fornire informazioni di contesto mirate e dinamiche (come snippet di codice vulnerabile simile e descrizioni di sicurezza pertinenti) è il prerequisito fondamentale per far lavorare i modelli al massimo delle loro capacità.
+
+\section{Limiti dello Studio}
+Nonostante l'elevata accuratezza raggiunta, l'architettura proposta presenta alcune limitazioni strutturali e operative che è doveroso evidenziare.
+
+In primo luogo, l'efficacia del modulo RAG è strettamente vincolata alla completezza e alla qualità del Database vettoriale. Di fronte a vulnerabilità \textit{zero-day} assolute o a pattern logici non mappati nella Knowledge Base, il sistema perde il beneficio dell'ancoraggio fattuale, dovendo fare affidamento unicamente sulla conoscenza parametrica del modello.
+
+In secondo luogo, il sistema di Retrieval potrebbe soffrire di un bias semantico dovuto all'utilizzo esclusivo di descrizioni in linguaggio naturale. Se da un lato l'astrazione testuale (la \textit{Security Code Description}) \ref{sec:sec_code_desc} è cruciale per mitigare il rumore sintattico del codice grezzo, dall'altro introduce un potenziale punto di debolezza dovuto ad un'eventuale imprecisione, omissione o ambiguità dell'LLM durante la generazione del testo. Questo può deviare drasticamente la ricerca portando al recupero di contesto irrilevante o fuorviante.
+
+Infine, l'analisi mostra limiti nell'individuazione di vulnerabilità complesse di tipo \textit{cross-contract}. Il sistema attuale analizza solamente il contesto locale del contratto; tracciare le interazioni di stato globale tra molteplici Smart Contract interdipendenti eccede le attuali capacità del framework.
+
+\section{Sviluppi Futuri}
+La naturale evoluzione del framework proposto risiede nel superamento dell'attuale architettura lineare in favore di un paradigma basato su agenti (\textit{Agentic Workflow}). Sebbene la pipeline RAG implementata si sia dimostrata altamente efficace, essa opera secondo un flusso di esecuzione statico e predeterminato.
+
+Dotando l'LLM della capacità di utilizzare strumenti esterni (\textit{Tool}), il sistema potrebbe decidere dinamicamente e iterativamente quali risorse chiamare in base al codice in esame. Un agente di sicurezza così concepito potrebbe integrare:
+\begin{itemize}
+    \item \textbf{Strumenti di Analisi Statica:} Per delegare l'individuazione di errori comuni e strutturali a tool automatici, permettendo all'agente LLM di concentrare le proprie capacità di ragionamento esclusivamente sulla logica del contratto e sulle vulnerabilità più complesse.
+    \item \textbf{Compilatori Nativi:} permettendo all'agente di interrogare il compilatore PyTeal/TEAL in \textit{real-time} per validare la sintassi delle sue ipotesi, ricevendo log di errore da analizzare e correggere autonomamente prima di emettere il verdetto finale.
+    \item \textbf{La Pipeline RAG come Tool:} anziché subire passivamente il contesto fornito all'inizio, l'agente potrebbe decidere in autonomia quando interrogare il Database vettoriale, formulando query multiple e affinando la ricerca in base ai primi indizi riscontrati nel codice target.
+\end{itemize}
+
+Questa flessibilità operativa abiliterebbe l'esecuzione di audit profondamente più completi. Un agente dotato di memoria, capace di raccogliere informazioni eterogenee da più strumenti e di navigare tra i file di un intero progetto potrebbe tracciare il flusso di esecuzione e lo stato globale attraverso molteplici contratti interdipendenti.
+
+Parallelamente all'evoluzione architetturale, un ulteriore margine di sviluppo risiede nell'ottimizzazione del sistema di Retrieval. Per mitigare il rischio di bias semantico derivante dall'uso esclusivo di descrizioni in linguaggio naturale, la ricerca vettoriale potrebbe essere arricchita integrando astrazioni strutturali del codice. Ispirandosi alle metodologie adottate da framework recenti come \textbf{Vul-RAG} e \textbf{PropertyGPT}, si potrebbe affiancare alla descrizione testuale una rappresentazione del codice generalizzata. Questo approccio prevede l'estrazione delle sole firme delle funzioni o degli \textit{statement} logici, rimuovendo intenzionalmente identificatori specifici e nomi di variabili per astrarre il pattern di vulnerabilità. L'utilizzo di una query ibrida, che combina la semantica del linguaggio naturale con la struttura astratta del codice, permetterebbe di recuperare esempi storici strutturalmente allineati, massimizzando la precisione dell'\textit{In-Context Learning}. 

@@ -1,0 +1,46 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding what this PyTeal contract does. The function extended_nft() checks a group of four transactions. The first transaction is an ApplicationCall with specific arguments and sender. The second is a Payment to a specific receiver, third is an AssetTransfer, and fourth another Payment. All transactions are validated with various conditions like sender addresses, amounts, fees, and some zero addresses for rekey and close_remainder.
+
+Now, applying the vulnerability checklist. 
+
+First, Unchecked Transaction Fee: The contract checks fees for transactions 1, 2, 3, but maybe not all critical transactions. Wait, the first transaction is an ApplicationCall. The security check applies to critical transactions authorized by smart signatures. Since this is a stateless contract (logic signature), if it's authorizing transactions, then we need to check if fees are capped. The first transaction's fee is checked with < 2000, which is good. The second, third, fourth have fees <= 1000, 1500, etc. But maybe other transactions not checked? Not sure here since all four are checked. So maybe this vulnerability isn't present here.
+
+Second, Unchecked Close Remainder To: The contract checks close_remainder_to() for transactions 2 and 4, setting them to zero. So that's covered. So no issue here.
+
+Third, Unchecked Asset Close To: The third transaction checks asset_close_to() == zero address. So that's okay.
+
+Fourth, Unchecked Rekey To: Transactions 2 and 4 check rekey_to() == zero. So that's handled. 
+
+Fifth, Unchecked Payment Receiver: The second and fourth transactions have specific receivers. So they are restricted. So no problem here.
+
+Sixth, Unchecked Asset Receiver: The third transaction's asset_receiver is set to a specific address. So that's okay.
+
+Seventh and Eighth vulnerabilities are about Update/DeleteApplication, but this contract doesn't handle those, so they're not applicable.
+
+Looking further, the contract uses Gtxn[0].sender() != another address, but maybe there's a possibility of other checks missing? Let me check each transaction type.
+
+The first transaction is an ApplicationCall. The sender is fixed to a specific address. So no need to check rekey_to or close_remainder_to here since it's not a Payment or AssetTransfer. 
+
+The second transaction is a Payment, and they check rekey_to and close_remainder_to. 
+
+Third is AssetTransfer, checks asset_close_to. 
+
+Fourth Payment checks rekey_to and close_remainder_to. 
+
+So all the required checks for the relevant transaction types are present. 
+
+But wait, the first transaction's fee is checked to be less than 2000. The vulnerability checklist's first item says to enforce a maximum fee. Here, it's checked. So that's okay. 
+
+Another thing to check: the contract is a stateless smart contract (logic signature), so the vulnerabilities related to smart signatures apply. 
+
+I don't see any missing checks here. All the required fields are validated. So the contract seems secure against the listed vulnerabilities.
+</think>
+
+<final>
+The contract enforces transaction fee limits, validates rekey/close-to addresses, and restricts receivers for all authorized transactions.
+
+### Vulnerability: Not Vulnerable
+### Explanation: All critical checks for transaction fees, rekey/close-to addresses, and receiver addresses are explicitly implemented for the authorized transactions.
+### Risk: Low - The contract includes all required security checks for its transaction types and authorization logic.
+</final>

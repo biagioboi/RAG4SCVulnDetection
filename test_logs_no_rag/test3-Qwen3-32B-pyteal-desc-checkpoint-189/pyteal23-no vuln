@@ -1,0 +1,48 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a payment splitting contract that handles two scenarios: a 2-transaction payment split and a contract closure after timeout.
+
+First, looking at the overall structure:
+- The contract uses template parameters for configuration
+- It has a core validation function `split_core` that checks basic transaction properties
+- It has two main execution paths based on group size: `split_transfer` for 2 transactions and `split_close` for single transaction closure
+
+Now examining the security checks:
+
+In `split_core`:
+- Checks transaction type is Payment ✅
+- Checks fee is below template limit ✅
+- **CRITICAL:** Checks `Txn.rekey_to() == Global.zero_address()` ✅ - this prevents rekeying attacks
+
+In `split_transfer` (2-transaction group):
+- Validates both transactions have same sender ✅
+- **CRITICAL:** Checks `Txn.close_remainder_to() == Global.zero_address()` ✅ - prevents account closure
+- Validates receiver addresses match template parameters ✅
+- Performs the payment split calculation ✅
+- Checks minimum payment amount ✅
+
+In `split_close` (single transaction after timeout):
+- **CRITICAL:** Sets `Txn.close_remainder_to() == tmpl_own` ✅ - controlled closure
+- Validates receiver is zero address and amount is 0 ✅
+- Checks timeout condition ✅
+
+The contract systematically validates all critical fields:
+- `rekey_to` is checked in core
+- `close_remainder_to` is checked in both execution paths
+- Payment receivers are validated
+- Transaction fees are bounded
+- No arbitrary asset operations (only payment transactions)
+- No update/delete operations
+
+All security-critical fields are properly constrained, and the logic flow is sound. The contract properly handles both the active payment splitting and the timeout closure scenarios without exposing any vulnerabilities.
+
+</think>
+
+<final>
+
+
+The contract implements secure payment splitting with proper validation of all critical transaction fields.
+
+### Vulnerability: Not Vulnerable
+### Explanation: All security-critical fields (rekey_to, close_remainder_to, receivers, fees) are properly validated in both execution paths, preventing common Algorand vulnerabilities.
+### Risk: None - Contract implements proper security controls
+</final>

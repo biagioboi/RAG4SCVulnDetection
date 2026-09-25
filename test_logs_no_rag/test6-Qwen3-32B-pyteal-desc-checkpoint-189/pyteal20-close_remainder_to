@@ -1,0 +1,25 @@
+
+--------------------------------------------------Audit-------------------------------------------------- I am analyzing this PyTeal smart signature code. The contract implements a payment splitting mechanism with two receivers based on a ratio. It has two main execution paths: a 2-transaction group for splitting payments between two addresses according to a ratio, and a single transaction for closing the account after a timeout.
+
+     Let me examine the security checks systematically:
+     - **Unchecked Transaction Fee**: The code checks `Txn.fee() < tmpl_fee` but only for the first transaction in the group. In a 2-transaction group, the second transaction's fee is completely unchecked. This is a clear vulnerability.
+     - **Unchecked Close Remainder To**: The code validates `Txn.close_remainder_to() == Global.zero_address()` for the first transaction but does not check this field for the second transaction at all. This could allow account closure.
+     - **Unchecked Asset Close To**: Not applicable - this is a payment contract, not handling asset transfers.
+     - **Unchecked Rekey to**: The code checks `Txn.rekey_to() == Global.zero_address()` for the first transaction but does not validate this field for the second transaction. This is a vulnerability.
+     - **Unchecked Payment Receiver**: The code properly validates both receivers against the template addresses for the payment transactions.
+     - **Unchecked Asset Receiver**: Not applicable - no asset transfers.
+     - **Arbitrary update**: Not applicable - this is a stateless smart signature, not an application.
+     - **Arbitrary delete**: Not applicable - same reason.
+
+     The fee and rekey checks are only applied to the first transaction in the group, leaving the second transaction completely vulnerable. An attacker could set high fees or rekey the account through the second transaction while the first transaction appears legitimate.
+
+    </think>
+
+<final>
+
+The contract implements a payment splitting mechanism but fails to validate critical security fields for all transactions in the group, creating exploitable vulnerabilities.
+
+### Vulnerability: Unchecked Transaction Fee, Unchecked Rekey to
+### Explanation: The contract only validates the fee and rekey_to fields for the first transaction in the group, leaving the second transaction completely unchecked. This allows an attacker to set excessive fees or rekey the account through the second transaction while the first transaction appears legitimate.
+### Risk: High - Could lead to fund drainage through excessive fees or complete account compromise through rekeying
+</final>

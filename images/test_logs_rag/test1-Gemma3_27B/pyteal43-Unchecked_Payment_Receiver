@@ -1,0 +1,114 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract implements a company-managed pension system where the company can contribute funds to a global pool, set a fixed pension amount, and allow employees to withdraw their pension. The contract ensures only the company can manage the fund and that withdrawals are limited to the predefined pension amount.
+
+### Functional Description
+1. **Creation handler**: Initializes the contract by storing the creator's address as the company and setting the global fund value to zero.
+2. **NoOp handler (contribute)**: Allows the company to add funds to the global pool by sending a payment transaction; the transaction amount is added to the global fund value.
+3. **UpdateApplication handler (set_pension)**: Permits the company to set the fixed pension amount by providing the new value as the first application argument.
+4. **DeleteApplication handler (handledelete)**: Allows only the company to delete the application.
+5. **CloseOut handler**: Always approves account closure from the application.
+6. **OptIn handler (withdraw)**: Processes employee pension withdrawals via a grouped transaction:
+   - Transaction 0 checks: Sender must be the company.
+   - Transaction 1 checks: No specific fields are validated beyond being part of the group; its receiver receives the pension payment.
+   - Validates the global fund contains at least the pension amount, deducts the pension amount from the fund, and issues a payment inner transaction to the receiver of the second transaction for the pension amount.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Payment Receiver** (0.9338)
+        - **Description:** The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.
+        - **Preconditions:** Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.
+        - **Security check to perform**: Ensure payments only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    withdraw = Seq([
+        Assert(Global.group_size() == Int(2)),
+        Assert(Gtxn[0].sender() == App.globalGet(company_key)),
+        Assert(App.globalGet(fund_key) >= App.globalGet(pension_key)),
+        App.globalPut(fund_key, App.globalGet(fund_key) - App.globalGet(pension_key)),
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetField(TxnField.type_enum, TxnType.Payment),
+        InnerTxnBuilder.SetField(TxnField.amount, App.globalGet(pension_key)),
+        InnerTxnBuilder.SetField(TxnField.receiver, Gtxn[1].accounts[1]), # The contract sets the payment_receiver field directly to Txn.accounts[1] without validating the account. An attacker can pass any account in this position when calling the contract.
+
+        InnerTxnBuilder.Submit(),
+        Approve()
+    ])
+          ```
+      
+    2. **Arbitrary update** (0.9123)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can invoke this operation to replace the contract's logic with malicious code.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow update by handling the UpdateApplication call. If there's no handler for OnComplete.UpdateApplication the UpdateUpdateApplication cannot be called, so the issue cannot be present.
+        - **Security check to perform**: Ensure that UpdateApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    [Txn.on_completion() == OnComplete.UpdateApplication, Seq(
+            Assert(Global.group_size() >= Int(2)),
+            App.globalPut(Txn.application_args[0], Txn.application_args[1]),
+            Return(Int(1))
+]
+          ```
+      
+    3. **Unchecked Asset Receiver** (0.8936)
+        - **Description:** The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.
+        - **Preconditions:** Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.
+        - **Security check to perform**: Ensure asset transfer only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_exchange_4 = Seq([
+        Assert(
+            And(
+                Txn.group_index() == Int(0),
+                Gtxn[0].type_enum() == TxnType.AssetTransfer,
+                Gtxn[0].asset_amount() >= min_amount
+            )
+        ),
+	# VULNERABILITÃ€: Unchecked_Asset_Receiver
+        # Il receiver dell'asset transfer (Txn.accounts[1]) non viene verificato
+        # potrebbe essere qualsiasi account, anche non autorizzato
+        App.globalPut(Concat(asset_prefix, Txn.accounts[1]), Gtxn[0].asset_amount()),
+        Approve()
+    ])
+          ```
+      
+    4. **Arbitrary delete** (0.8912)
+    
+    5. **Unchecked Close Remainder To** (0.8773)
+    
+    6. **Unchecked Transaction Fee** (0.8743)
+    
+    7. **Unchecked Asset Close To** (0.8718)
+    
+    8. **Unchecked Rekey to** (0.8702)
+    
+
+--------------------------------------------------Audit--------------------------------------------------The pension system contractmanages company contributions to employee pensions via global state variables. Key operations include initialization, contributions, pension setting, deletion, and withdrawals. The core logic handles application-level operations (init, contribute, set_pension, delete) and transaction-level withdrawals via inner transactions.
+
+### Vulnerability Analysis
+
+1. **Unchecked Payment Receiver (0.9338)**
+   - **Issue**: In `withdraw`, the receiver is set to `Gtxn[1].receiver()` without validation.
+   - **Risk**: Attackers can manipulate the inner transaction's receiver by controlling `Gtxn[1]` (the second transaction in the group). This allows redirecting pension funds to unauthorized addresses.
+   - **Exploit**: An attacker could trigger a group transaction where the second transaction's receiver is set to their address, bypassing the contract's sender checks.
+
+2. **Arbitrary Update (0.9123)**
+   - **Issue**: The `set_pension` handler processes `UpdateApplication` without sender validation.
+   - **Risk**: While the contract checks `Txn.sender() == App.globalGet(company_key)` in `set_pension`, the RAG vulnerability highlights that `UpdateApplication` handlers must restrict access to authorized entities. The current code allows any `UpdateApplication` call to modify the pension amount, potentially enabling unauthorized changes if the sender check is bypassed (e.g., via rekeying or delegation).
+
+### Final Judgment
+
+### Vulnerability: Unchecked Payment Receiver
+### Explanation: The contract fails to validate the receiver address in payment transactions, allowing attackers to redirect funds to unauthorized addresses.
+### Risk: Critical  
+Funds can be stolen by manipulating inner transaction receivers during withdrawals.  
+### Mitigation: Validate `Gtxn[1].receiver()` against a whitelist of authorized addresses before submitting the inner transaction.  
+
+### Vulnerability: Arbitrary Update
+### Explanation: The `UpdateApplication` handler does not restrict access to authorized entities beyond sender checks.
+### Risk: High  
+Unauthorized parties could modify pension amounts if sender validation is bypassed.  
+### Mitigation: Restrict `UpdateApplication` calls to a dedicated admin address or require multi-sig approval.  
+
+**No other vulnerabilities detected.**

@@ -1,0 +1,71 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+
+
+Let me analyze this PyTeal smart signature code systematically. The contract appears to be a logic signature that validates a group of 4 transactions with specific conditions for each.
+
+First, I'll examine the overall structure:
+- It defines 4 whitelisted recipient addresses and some constants
+- It checks the group size is exactly 4 transactions
+- It has separate validation conditions for each transaction in the group
+- The final logic combines all these conditions with AND/OR operations
+
+Now let me analyze each transaction validation:
+
+**Transaction 1 (Payment):**
+- Checks receiver is primary_recipient ✓
+- Amount is exactly max_amount/2 ✓
+- close_remainder_to is zero ✓
+- rekey_to is zero ✓
+- fee is limited to 1000 ✓
+- All critical security checks are present
+
+**Transaction 2 (Payment):**
+- Checks receiver is secondary_recipient ✓
+- Amount is ≤ max_amount/3 ✓
+- close_remainder_to is zero ✓
+- rekey_to is zero ✓
+- Has timestamp expiration check ✓
+- fee is limited to 1000 ✓
+- All critical security checks are present
+
+**Transaction 3 (AssetTransfer):**
+- Checks asset_receiver is tertiary_recipient ✓
+- Asset amount is exactly 1 ✓
+- fee is limited to 1000 ✓
+- asset_close_to is zero ✓
+- rekey_to is zero ✓
+- All critical security checks are present
+
+**Transaction 4 (Payment):**
+- Checks receiver is primary_recipient ✓
+- Amount is exactly max_amount/4 ✓
+- close_remainder_to is zero ✓
+- rekey_to is zero ✓
+- **CRITICAL OBSERVATION:** This transaction does NOT check the fee amount!
+
+Looking at the code:
+- Transaction 1: `Gtxn[0].fee() <= Int(1000)`
+- Transaction 2: `Gtxn[1].fee() <= Int(1000)`
+- Transaction 3: `Gtxn[2].fee() <= Int(1000)`
+- Transaction 4: ❌ No fee check
+
+This is problematic because transaction 4 could have an arbitrarily high fee set by the attacker, potentially draining the account's funds through excessive fee payments. The contract validates all other security-critical fields but completely omits the fee check for the last payment transaction.
+
+The vulnerability is specific to this transaction because:
+- It's a payment transaction (critical type)
+- It's authorized by a smart signature (stateless contract)
+- It lacks explicit fee validation
+- The fee could be set to a value that drains the account
+
+</think>
+
+<final>
+
+
+The contract contains a vulnerability where transaction fee is not validated for one of the payment transactions, allowing potential fund drainage.
+
+### Vulnerability: Unchecked Transaction Fee
+### Explanation: Transaction 4 (Gtxn[3]) does not validate the transaction fee, allowing an attacker to set an arbitrarily high fee that could drain the account's funds while still passing all other validation checks.
+### Risk: High - Could result in complete loss of account funds through excessive fee exploitation
+</final>

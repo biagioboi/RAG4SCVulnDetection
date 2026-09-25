@@ -1,0 +1,59 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. The contract appears to be a stateless smart signature (LogicSig) that validates a 4-transaction group. Its purpose is to enforce specific conditions on payments and asset transfers between predefined recipients.
+
+     First, I'll examine the overall structure:
+     - It defines 3 hardcoded recipient addresses and some constants
+     - It expects a transaction group of exactly 4 transactions
+     - It validates each transaction with specific conditions
+     - The final logic combines all these validations with `And()`
+
+     Now let me break down each transaction validation:
+
+     **Transaction 0 (Payment):**
+     - Checks it's a payment to primary_recipient
+     - Amount is exactly max_amount/2
+     - Validates close_remainder_to is zero_address
+     - Validates rekey_to is zero_address
+     - Fee is capped at 1000 microAlgos
+
+     **Transaction 1 (Payment):**
+     - Checks it's a payment to secondary_recipient
+     - Amount is ≤ max_amount/3
+     - Validates close_remainder_to is zero_address
+     - Validates rekey_to is zero_address
+     - Has expiration timestamp check
+     - Fee is capped at 1000 microAlgos
+
+     **Transaction 2 (AssetTransfer):**
+     - Checks it's an asset transfer to tertiary_recipient
+     - Amount is exactly 1
+     - Validates asset_close_to is zero_address
+     - Validates rekey_to is zero_address
+     - Fee is capped at 1000 microAlgos
+
+     **Transaction 3 (Payment):**
+     - Checks it's a payment to primary_recipient
+     - Amount is exactly max_amount/4
+     - Validates close_remainder_to is zero_address
+     - Validates rekey_to is zero_address
+
+     Wait, I notice something important about transaction 3. Let me examine this more carefully. The validation for transaction 3 includes:
+     - `Gtxn[3].close_remainder_to() == Global.zero_address()` ✔️
+     - `Gtxn[3].rekey_to() == Global.zero_address()` ✔️
+     - But I don't see any fee validation for transaction 3! The other transactions (0, 1, 2) have `Gtxn[i].fee() <= Int(1000)` but transaction 3 does not.
+
+     This is a critical oversight. The contract validates fees for transactions 0, 1, and 2 but completely omits fee validation for transaction 3. This means an attacker could set an arbitrarily high fee for transaction 3, potentially draining the account's funds through excessive fees.
+
+     The vulnerability pattern here is "Unchecked Transaction Fee" specifically for payment transactions. While the contract properly validates other security-critical fields like close_remainder_to and rekey_to for all transactions, it fails to apply consistent fee controls across the entire transaction group.
+
+</think>
+
+<final>
+
+
+The contract contains a critical vulnerability where transaction fees are not consistently validated across all transactions in the group.
+
+### Vulnerability: Unchecked Transaction Fee
+### Explanation: Transaction 3 (payment) lacks fee validation, allowing an attacker to set arbitrarily high fees that could drain the account's funds while still passing all other contract validations.
+### Risk: High - Could result in significant fund loss through excessive transaction fees
+</final>

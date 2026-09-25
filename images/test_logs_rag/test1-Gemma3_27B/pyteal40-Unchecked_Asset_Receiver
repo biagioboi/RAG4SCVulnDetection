@@ -1,0 +1,131 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract facilitates a timed exchange of a specific asset, where users can deposit assets after a predefined delay from the contract's creation. It records the deposited amount for each participating account in global state.
+
+### Functional Description
+1. **Creation handler**: Sets the transaction sender as the contract owner in global state and records the creation round as the start time.
+2. **Opt-In handler**: Allows any account to opt into the application without conditions.
+3. **Close-Out handler**: Allows any account to close out its local state without conditions.
+4. **Update handler**: Verifies the transaction sender matches the stored owner before allowing the application to be updated.
+5. **Delete handler**: Verifies the transaction sender matches the stored owner before allowing the application to be deleted.
+6. **NoOp handler - exchange_1**: Executes when the first application argument is "exchange_1". It requires a transaction group and checks the following:
+   - The current transaction is at index 1 in the group.
+   - Transaction 0 is an AssetTransfer.
+   - Transaction 1 is an ApplicationCall.
+   - The asset transferred in transaction 0 matches the first foreign asset referenced in transaction 1.
+   - The transferred asset amount is at least 50.
+   - The current round is at least the stored start time plus 1000 rounds.
+   If all checks pass, it stores the transferred amount in global state under a key derived from the second account in the application call's accounts array.
+7. **NoOp handler - exchange_2**: Executes when the first application argument is "exchange_2". It requires a transaction group and checks the following:
+   - The current transaction is at index 2 in the group.
+   - Transaction 0 is an AssetTransfer.
+   - Transaction 2 is an ApplicationCall.
+   - The asset transferred in transaction 0 matches the first foreign asset referenced in transaction 2.
+   - The transferred asset amount is at least 50.
+   - The current round is at least the stored start time plus 1000 rounds.
+   If all checks pass, it stores the transferred amount in global state under a key derived from the third account in the application call's accounts array.
+8. **NoOp handler - exchange_3**: Executes when the first application argument is "exchange_3". It requires a transaction group and checks the following:
+   - The current transaction is at index 3 in the group.
+   - Transaction 0 is an AssetTransfer.
+   - Transaction 3 is an ApplicationCall.
+   - The asset transferred in transaction 0 matches the first foreign asset referenced in transaction 3.
+   - The transferred asset amount is at least 50.
+   - The current round is at least the stored start time plus 1000 rounds.
+   If all checks pass, it stores the transferred amount in global state under a key derived from the fourth account in the application call's accounts array.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Asset Receiver** (0.9328)
+        - **Description:** The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.
+        - **Preconditions:** Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.
+        - **Security check to perform**: Ensure asset transfer only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_exchange_1 = Seq([
+        Assert(
+            And(
+                Txn.group_index() == Int(1),
+                Gtxn[0].type_enum() == TxnType.AssetTransfer,
+                Gtxn[1].type_enum() == TxnType.ApplicationCall,
+                Gtxn[0].xfer_asset() == Gtxn[1].assets[0],
+                Gtxn[0].asset_amount() >= min_amount,
+                Global.round() >= App.globalGet(start_time_key) + delay
+            )
+        ),
+	# VULNERABILITÃ€: Unchecked_Asset_Receiver
+        # Il receiver dell'asset transfer (Txn.accounts[1]) non viene verificato
+        # potrebbe essere qualsiasi account, anche non autorizzato
+        App.globalPut(Concat(asset_prefix, Txn.accounts[1]), Gtxn[0].asset_amount()),
+        Approve()
+    ])
+          ```
+      
+    2. **Unchecked Payment Receiver** (0.9107)
+        - **Description:** The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.
+        - **Preconditions:** Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.
+        - **Security check to perform**: Ensure payments only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    handle_payment = Seq([
+        Assert(Global.group_size() >= Int(2)),
+        Assert(Txn.type_enum() == TxnType.Payment),
+        Assert(Txn.amount() > Int(0)),
+        App.globalPut(Bytes("LastReceiver"), Txn.accounts[1]),
+        App.globalPut(Bytes("LastAmount"), Txn.amount()),
+        Approve()
+	# The contract records Txn.accounts[1] as the payment receiver without verifying or restricting which account can be placed in this field. An attacker can supply any arbitrary account in the transaction's account list
+
+    ])
+          ```
+      
+    3. **Arbitrary delete** (0.9095)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call
+        - **Security check to perform**: Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    is_delete_application = And(
+    Txn.on_completion() == OnComplete.DeleteApplication,
+    Txn.application_id() != Int(0)
+    # nessun controllo sul sender per verificare che solo il creatore o un admin possa cancellare lâ€™app
+)
+
+[is_delete_application, Seq([
+    Log(Bytes("Delete Application")),
+    Return(Int(1))
+])],
+          ```
+      
+    4. **Arbitrary update** (0.9051)
+    
+    5. **Unchecked Close Remainder To** (0.8991)
+    
+    6. **Unchecked Asset Close To** (0.8924)
+    
+    7. **Unchecked Rekey to** (0.8886)
+    
+    8. **Unchecked Transaction Fee** (0.8872)
+    
+
+--------------------------------------------------Audit--------------------------------------------------<analysis>
+The contract implements a timed asset exchange where an ASA transfer (TxnType.AssetTransfer) must be followed by an application call. The core logic in `on_exchange_1`, `on_exchange_2`, and `on_exchange_3` stores the transferred amount into global state under keys derived from `Txn.accounts[1]`, `Txn.accounts[2]`, or `Txn.accounts[3]` without any validation of those addresses. 
+
+- The contract only checks that the group contains the expected transaction types and amounts, and that the current round is past a delay. 
+- It never verifies that the `AssetReceiver` (i.e., `Txn.accounts[1]` etc.) is a whitelisted or authorized address; any account that can craft a group transaction meeting the other conditions can cause the contract to record the amount for an arbitrary receiver.
+- This matches the **Unchecked Asset Receiver** vulnerability (priority 0.9328). 
+- Other RAG items (unchecked payment receiver, arbitrary delete/update, close remainder, etc.) are not applicable because the contract does not handle payments, does not allow unrestricted DeleteApplication/UpdateApplication, and does not expose close or rekey functionality.
+
+Thus the primary security issue is the missing validation of the asset receiver address.
+</analysis>
+
+<final>
+### Vulnerability: Unchecked Asset Receiver
+### Explanation: The contract records the transferred asset amount into global storage using `Txn.accounts[1]`, `Txn.accounts[2]`, or `Txn.accounts[3]` as keys, but it never validates that these addresses are authorized or part of a whitelist. An attacker can craft a valid group transaction that satisfies the timing and amount checks and redirect the assets to any arbitrary account, effectively stealing or misallocating funds.
+### Risk: High - Allows unauthorized redirection of ASA funds to attacker‑controlled or arbitrary addresses, leading to potential loss of user assets.
+### Mitigation: 
+- Introduce a whitelist of permitted receiver addresses (e.g., store them in global state and check `Txn.accounts[1]` against it before recording).
+- Alternatively, require the receiver to be a specific known address (e.g., the contract itself or a designated party) and reject transfers to any other account.
+- Add an explicit `AssetReceiver` validation step in the `Assert` clause, such as `Approve()` only if `Txn.accounts[1]` matches a trusted address.
+</final>

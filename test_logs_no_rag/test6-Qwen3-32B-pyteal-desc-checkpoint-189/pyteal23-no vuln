@@ -1,0 +1,44 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal smart signature contract systematically. First, I'll understand what type of contract this is. The code uses `Mode.Signature` compilation, so this is a stateless smart signature (delegated logic signature) that authorizes transactions.
+
+     Looking at the architecture, this appears to be a payment splitting contract that handles two scenarios:
+     1. A 2-transaction group where payments are split between two receivers according to a ratio
+     2. A single transaction that closes the account to the owner after a timeout
+
+     Now let's examine the security checks systematically:
+
+     **Unchecked Transaction Fee**: The contract checks `Txn.fee() < tmpl_fee` in the core conditions. This properly caps the fee for authorized transactions, so this check is satisfied.
+
+     **Unchecked Close Remainder To**: I need to verify how `close_remainder_to` is handled. In the transfer scenario (group_size == 2), it explicitly checks `Txn.close_remainder_to() == Global.zero_address()`. In the close scenario (group_size != 2), it checks `Txn.close_remainder_to() == tmpl_own`. Both cases have explicit validation, so this is secure.
+
+     **Unchecked Asset Close To**: The contract only handles payment transactions (`TxnType.Payment`), so asset transfers are not applicable. No vulnerability here.
+
+     **Unchecked Rekey to**: The contract checks `Txn.rekey_to() == Global.zero_address()` in the core conditions. This properly prevents rekeying attacks, so this is secure.
+
+     **Unchecked Payment Receiver**: This is the critical finding. Let me examine the payment receiver validation:
+     - In the transfer scenario: `Gtxn[0].receiver() == tmpl_rcv1` and `Gtxn[1].receiver() == tmpl_rcv2` - these correctly validate both receivers
+     - In the close scenario: `Txn.receiver() == Global.zero_address()` - this properly validates the receiver
+
+     However, I notice something important: The contract uses `Gtxn[0].sender() == Gtxn[1].sender()` to ensure both transactions come from the same sender. But there's no validation that the sender is the contract account itself or any authorized address. This means any user can submit this transaction group where the sender is their own address, and the contract will authorize payments from that address.
+
+     The vulnerability is that while the receivers are properly validated, the sender is not restricted. An attacker could create a transaction group where they are the sender, and the contract would authorize payments from their account to the specified receivers. This completely bypasses the intended escrow functionality.
+
+     The contract is designed to split payments from a specific escrow account, but without validating that the sender is the contract account itself, it becomes a generic payment authorization tool that anyone can use.
+
+     The specific issue is in the logic: `Gtxn[0].sender() == Gtxn[1].sender()` - this only ensures both transactions have the same sender, but doesn't verify that sender is the intended contract account.
+
+     This is a classic "Unchecked Payment Sender" vulnerability where the contract fails to validate who is authorized to send payments from the account it's supposed to control.
+
+     The other checks (fee, rekey, close_remainder_to) are properly implemented, but the fundamental flaw is that the contract doesn't verify the sender is the intended escrow account.
+
+    </think>
+
+<final>
+
+
+     The contract implements a payment splitting mechanism but fails to validate that payments originate from the intended escrow account, allowing unauthorized transactions.
+
+     ### Vulnerability: Unchecked Payment Sender
+     ### Explanation: The contract does not validate that payment transactions originate from the intended escrow account address. While receivers are properly restricted, the sender is only checked for consistency between transactions in a group, allowing any user to submit transactions where they are the sender and the contract authorizes payments from their account.
+     ### Risk: Critical - Allows complete drainage of funds from any user's account that submits the authorized transaction group.
+     </final>

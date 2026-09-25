@@ -1,0 +1,28 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. This is a stateful smart contract written in PyTeal for Algorand. The main functions are incrementing a counter, resetting it, and getting its value. The contract also handles the DeleteApplication on completion.
+
+Looking at the vulnerabilities listed, I need to check each one against the code. 
+
+First, Unchecked Transaction Fee. This applies to smart signatures, but this contract is an application, not a logic signature. So this isn't relevant here.
+
+Next, Unchecked Close Remainder To. This applies to payment transactions authorized by the contract. However, the contract doesn't handle payments or asset transfers directly; it's managing an application's state. So probably not applicable.
+
+Same goes for Unchecked Asset Close To and Unchecked Rekey To. The contract doesn't process asset transfers or payments, so those checks aren't needed here.
+
+Unchecked Payment Receiver and Unchecked Asset Receiver also don't apply because the contract isn't authorizing any payments or asset transfers.
+
+Now, Arbitrary Update and Arbitrary Delete. The contract does handle DeleteApplication by returning Approve(). The OnComplete.DeleteApplication is allowed without any checks. According to vulnerability 8, this should be restricted to the creator or admin. The current code allows anyone to delete the contract, which is a problem. 
+
+Looking at the code, the delete_contract is just Approve(), so any transaction with OnComplete.DeleteApplication will be approved regardless of the sender. That's a clear violation of the security check for vulnerability 8. 
+
+The other vulnerabilities like Arbitrary Update aren't handled here because the contract doesn't process UpdateApplication. The OnComplete.UpdateApplication isn't part of the Cond statements, so it's not handled. Since the check requires either not handling it or restricting it, the current code isn't handling it, which is acceptable. 
+
+So the main issue is the lack of authorization check on the DeleteApplication. The contract allows anyone to delete it, which is a high-risk vulnerability.
+</think>
+
+<final>
+### Vulnerability: Arbitrary Delete
+### Explanation: The contract allows any user to delete the application without verifying if the sender is the creator or an authorized admin. The `delete_contract` block simply approves the deletion (`Approve()`), lacking checks like `Txn.sender() == Global.creator_address()`.
+### Risk: High - An attacker can permanently remove the contract, disrupting its functionality and potentially leading to loss of data or funds if the contract manages assets.
+</final>

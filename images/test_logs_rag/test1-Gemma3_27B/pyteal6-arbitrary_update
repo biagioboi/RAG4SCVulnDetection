@@ -1,0 +1,126 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract is designed to manage a multi-transaction operation where a specific sequence of three transactions must be submitted together. It tracks the number of successfully executed operations and allows an admin to update the admin address or delete the application.
+
+### Functional Description
+1. **Creation handler**: Executes when the application ID is zero. It initializes the contract by setting the transaction sender as the admin in global state and setting the transaction count to zero, then approves.
+
+2. **NoOp handler (execute_operation)**: Executes when the first application argument is "execute_operation". It verifies that the transaction group contains exactly three transactions with the following specific checks:
+   - Transaction 0 checks: type is Payment, receiver is the application address.
+   - Transaction 1 checks: type is ApplicationCall, first argument is "execute_operation".
+   - Transaction 2 checks: type is Payment, receiver is the application address.
+   If all checks pass, it increments the global transaction count by one and approves.
+
+3. **UpdateApplication handler**: Executes when the on-completion action is UpdateApplication. It verifies that there are exactly two application arguments and that the on-completion is UpdateApplication. It then updates the admin address in global state to the second application argument and approves.
+
+4. **DeleteApplication handler**: Executes when the on-completion action is DeleteApplication. It verifies that the transaction sender matches the current admin address stored in global state, then approves the deletion.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Arbitrary update** (0.9310)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can invoke this operation to replace the contract's logic with malicious code.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow update by handling the UpdateApplication call. If there's no handler for OnComplete.UpdateApplication the UpdateUpdateApplication cannot be called, so the issue cannot be present.
+        - **Security check to perform**: Ensure that UpdateApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    update_admin = Seq([
+        Assert(
+            And(
+                Txn.application_args.length() == Int(2),  
+
+                Txn.on_completion() == OnComplete.UpdateApplication
+            )
+        ),
+        App.globalPut(admin_key, Txn.application_args[1]),
+        Approve()
+    ])
+
+[Txn.on_completion() == OnComplete.UpdateApplication, update_admin]
+          ```
+      
+    2. **Arbitrary delete** (0.9149)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call
+        - **Security check to perform**: Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    If(
+            Txn.on_completion() == OnComplete.DeleteApplication,
+            Seq([
+                Log(Bytes("Application Deleted by: " + Txn.sender())),
+                Return(Int(1))  # Permette sempre l'eliminazione
+            ])
+        ),
+          ```
+      
+    3. **Unchecked Payment Receiver** (0.9146)
+        - **Description:** The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.
+        - **Preconditions:** Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.
+        - **Security check to perform**: Ensure payments only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    handle_payment = Seq([
+        Assert(Global.group_size() >= Int(2)),
+        Assert(Txn.type_enum() == TxnType.Payment),
+        Assert(Txn.amount() > Int(0)),
+        App.globalPut(Bytes("LastReceiver"), Txn.accounts[1]),
+        App.globalPut(Bytes("LastAmount"), Txn.amount()),
+        Approve()
+	# The contract records Txn.accounts[1] as the payment receiver without verifying or restricting which account can be placed in this field. An attacker can supply any arbitrary account in the transaction's account list
+
+    ])
+          ```
+      
+    4. **Unchecked Asset Receiver** (0.9086)
+    
+    5. **Unchecked Close Remainder To** (0.9055)
+    
+    6. **Unchecked Rekey to** (0.8895)
+    
+    7. **Unchecked Transaction Fee** (0.8894)
+    
+    8. **Unchecked Asset Close To** (0.8874)
+    
+
+--------------------------------------------------Audit--------------------------------------------------<reasoning>
+The contract is a simple stateful application that:
+
+1. **Initializes** by storing the creator’s address as `admin_key` and initializing a counter.
+2. **Handles a custom operation** (`execute_operation`) that must be invoked via a three‑transaction group:
+   - Payment to the contract,
+   - An `ApplicationCall` with `application_args[0] == "execute_operation"`,
+   - Another payment to the contract.
+   The handler only checks group composition and increments a counter; it imposes no sender or authorization checks.
+3. **Updates the admin** (`update_admin`) when an `UpdateApplication` call arrives with exactly two arguments. It overwrites `admin_key` with `Txn.application_args[1]` without verifying the caller’s identity.
+4. **Deletes the application** (`delete_application`) only if the caller’s address equals the current `admin_key`.
+5. **Routes** all calls through a `Cond` that forwards to the appropriate handler based on `Txn.application_id()` or `OnComplete`.
+
+**Security checks against the RAG checklist:**
+
+- **Arbitrary update (0.9310)** – The `update_admin` branch updates `admin_key` based solely on `Txn.application_args.length() == 2` and `OnComplete.UpdateApplication`. No check restricts the caller to the current admin or any privileged role. Consequently, any account can invoke `UpdateApplication` with two arguments and overwrite the admin address, effectively taking control of the contract.
+
+- **Arbitrary delete (0.9149)** – `delete_application` requires `Txn.sender() == App.globalGet(admin_key)`. Because `admin_key` can be arbitrarily overwritten by the vulnerable `update_admin` function, an attacker can first set `admin_key` to their own address (via a malicious `UpdateApplication` call) and then call `DeleteApplication` as that address, deleting the entire application and losing all state and funds.
+
+- **Unchecked Payment Receiver (0.9146)** – Payments are required to be sent to `Global.current_application_address()`, so the receiver is not arbitrary. No vulnerability here.
+
+- **Other checklist items** – No direct checks on asset close, rekey, transaction fee, etc., but they are not triggered in this contract.
+
+**Additional observations:**
+- The `handle_operation` branch does not restrict which account can construct the required group; any account can trigger the operation by forming a valid group. While the operation itself does not appear to perform privileged actions, the lack of sender authentication could be abused for denial‑of‑service or unexpected state changes.
+- No protection against re‑entrancy or re‑execution of the same operation, but such logical concerns are outside the scope of the checklist.
+
+**Conclusion:** The contract contains two critical vulnerabilities stemming from unrestricted `UpdateApplication` and consequently unrestricted `DeleteApplication` via a mutable admin key.
+</reasoning>
+
+<final>
+### Vulnerability: Arbitrary Update, Arbitrary Delete
+### Explanation: The `update_admin` handler updates the stored admin address without checking the caller, allowing any account to overwrite `admin_key`. Since `delete_application` only requires the caller to match the current `admin_key`, an attacker can first set `admin_key` to their own address and then delete the application, removing all state and funds. Both actions are unrestricted by sender authorization.
+### Risk: Critical / Full loss of contract state and funds via unauthorized admin takeover and self‑deletion.
+### Mitigation: 
+- In `update_admin`, add `Assert(Txn.sender() == App.globalGet(admin_key))` or require a multisig/admin signature before updating `admin_key`.
+- Make `admin_key` immutable after initialization or store it in a separate, protected global variable that can only be set once.
+- For `delete_application`, require the caller to be the original creator (`Txn.sender() == Txn.application_args[0])` or enforce that only the current admin (set at creation) may delete, preventing admin takeover.
+- Optionally, restrict `UpdateApplication` entirely to a designated governance transaction or use a separate “set_admin” call protected by the same admin check.
+</final>

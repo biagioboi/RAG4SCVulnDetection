@@ -1,0 +1,832 @@
+{
+  "sample": 3,
+  "metrics": {
+    "accuracy": 0.6239,
+    "precision": 0.5946,
+    "recall": 0.4583,
+    "f1_score": 0.5176,
+    "confusion_matrix": {
+      "tp": 22,
+      "fp": 15,
+      "tn": 46,
+      "fn": 26
+    },
+    "per_vulnerability": {
+      "Integer Overflow": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 4
+      },
+      "Denial of Service": {
+        "tp": 4,
+        "fp": 4,
+        "fn": 2
+      },
+      "Bump Seed": {
+        "tp": 3,
+        "fp": 2,
+        "fn": 3
+      },
+      "Unchecked External Calls": {
+        "tp": 3,
+        "fp": 3,
+        "fn": 3
+      },
+      "Missing Key Check": {
+        "tp": 4,
+        "fp": 3,
+        "fn": 5
+      },
+      "CPI Reentrancy": {
+        "tp": 3,
+        "fp": 3,
+        "fn": 3
+      },
+      "Type Confusion": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 6
+      }
+    }
+  },
+  "details": [
+    {
+      "file": "solana_01.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The code fails to initialize borrowed_value and does not calculate any borrowed amount, returning zero for the borrowed value. This breaks the invariant that collateral must exceed borrowed value, making all obligations appear solvent even when they are not.\n### Vulnerability: Denial of Service (DoS)\n### Explanation: The loop iterates over deposits but never touches the borrowed_value accumulator. All obligations appear to have zero borrowed value, preventing liquidations and allowing undercollateralized positions to persist indefinitely.\n### Risk: CRITICAL - This vulnerability can be exploited by any user with a partially repaid obligation to artificially maintain their position.\n</final>"
+    },
+    {
+      "file": "solana_02.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n1. The code was analyzed for the top priority vulnerability, Unchecked External Calls. The instruction correctly uses '?' on the instruction creation and passes the instruction to invoke_signed without discarding the result. The PDA derivation uses a stored canonical bump instead of create_program_address with an arbitrary user-supplied bump.\n### Vulnerability: Not Vulnerable\n### Explanation: The CPI return value is not discarded; the instruction result is propagated with '?' before invoke_signed is called. The PDA derivation uses the stored canonical bump instead of an arbitrary user-supplied bump.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_03.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract validates the mint and feature-id addresses against the provided bumps, preventing non-canonical PDA derivation.\n### Vulnerability: Not Vulnerable\n### Explanation: The code uses create_program_address and then explicitly checks that the computed address matches the provided account's key, which is the equivalent of a canonical bump check in a single instruction.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_04.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\nThe contract fails to prevent re-initialization of already-initialized accounts, allowing stale or corrupted data to overwrite existing validator lists and disrupt normal pool operation.\n### Vulnerability: Denial of Service (Re-initialization)\n### Explanation: The validator_list is pushed to without any check that it is not already initialized. An attacker can invoke this instruction repeatedly with the same validator_vote_info to append duplicate entries, bloating the list and eventually exhausting compute budget or corrupting pool state.\n### Risk: HIGH - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_05.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract correctly implements the security measures required to prevent the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The code follows the recommended security pattern: state is validated and user's withdrawal authorization is destroyed (via burn) BEFORE the transfer CPI is executed. This prevents any reentrancy attack during the withdrawal process.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_06.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract uses checked_add for amount and supply arithmetic, preventing overflow. CPI calls are not present in this function, so Unchecked External Calls does not apply. Key checks and freeze/native checks are present.\n### Vulnerability: Not Vulnerable\n### Explanation: checked_add prevents overflow. No CPI calls in this function. Mint authority and account type checks prevent unauthorized minting.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_07.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n1. The code uses `create_and_serialize_account_signed` with `get_realm_address_seeds(&name)` for the realm account, and `get_realm_config_address_seeds(realm_info.key)` for the config account, both of which internally use `find_program_address` to derive canonical PDAs. No raw `create_program_address` with an attacker-supplied bump is used, and both account types are serialized on-chain for future validation. All PDA derivation uses the canonical bump.\n### Vulnerability: Not Vulnerable\n### Explanation: The code uses find_program_address internally through get_realm_address_seeds and get_realm_config_address_seeds for canonical PDA derivation instead of accepting an attacker-supplied bump. Both accounts are created and serialized on-chain, ensuring their uniqueness and future validation.\n### Risk: No risk.\n</final>"
+    },
+    {
+      "file": "solana_08.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract does not use PDAs for state derivation, and the privileged operation explicitly verifies the caller through the instruction handler's implicit authority (the instruction is only callable by the current realm authority). No missing key check or bump seed canonicalization vulnerability is present.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction handler is part of a program's instruction dispatch, and only the current authority stored in the realm account can call this function. The new authority is set directly from the provided account key, not derived with an unvalidated bump.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_09.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measures for the checked vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: Both source and destination balances use checked arithmetic (checked_sub and checked_add) to prevent overflow/underflow. The delegation path also includes a checked_sub for delegated_amount. Additionally, the code includes freeze checks, balance checks, and mint matching before any state mutation.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_10.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract validates the decider's authority, requires their signature, checks that the decision has not already been made, and enforces the slot window for decisions.\n### Vulnerability: Not Vulnerable\n### Explanation: CPI Reentrancy is not applicable here since no CPI is performed. Integer arithmetic is not used. Type Confusion is mitigated by account-type validation via `Pool::try_from_slice`. DoS is prevented by slot window and decision state checks. Missing Key Check is prevented by decider account comparison. No external calls are made.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_11.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly enforces the required security invariant.\n### Vulnerability: Not Vulnerable\n### Explanation: All PDA derivations use get_*_address_with_seed helpers that return the canonical bump via find_program_address, and each derived address is verified against the provided account key before use.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_12.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measures against the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: Both subtraction and addition operations use checked variants (checked_sub and checked_add) with explicit error handling. The checked arithmetic pattern exactly matches the recommended security check for this vulnerability class.\n### Risk: No risk identified.\n</final>"
+    },
+    {
+      "file": "solana_13.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly validates initialization, authority, and data bounds before performing any potentially harmful operation.\n### Vulnerability: Not Vulnerable\n### Explanation: Re-initialization guards, rent exemption, oracle freshness, and loop bounds are not applicable here. The code validates that the account is already initialized, checks that the caller is the stored authority, and only resizes the account if the requested length exceeds the current size.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_14.json",
+      "ground_truth": "integer_flow",
+      "predictions": [
+        "Integer Overflow"
+      ],
+      "response": "<final>\n- The code fails to implement the required security checks, creating a vulnerability.\n### Vulnerability: Integer Overflow/Underflow\n### Explanation: The code uses raw + operator on destination_account.amount and mint.supply. If amount is large enough, this will silently wrap around, corrupting balances and totals.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_15.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "CPI Reentrancy"
+      ],
+      "response": "<final>\nThe code performs a CPI (token transfer) after the local state (voting power) has already been updated, creating a window where an attacker can vote with tokens that haven't yet been transferred.\n### Vulnerability: CPI Reentrancy (Critical)\n### Explanation: During the transfer CPI, the program's state already reflects the deposit, so a re-entry can exploit the inflated voting power.\n### Risk: CRITICAL - This vulnerability can be directly exploited by a malicious program during the CPI.\n</final>"
+    },
+    {
+      "file": "solana_16.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract correctly implements the required security measures against the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The code performs CPI only after all state validation and authority checks. Minimum amount-out check prevents slippage attacks. All cross-program calls occur after state is fully validated and before any state mutation.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_17.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measures against the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The function validates the current manager's authority with `check_manager`, requires the new manager's signature with `is_signer` check, and validates the fee account ownership with `check_manager_fee_info` before updating both manager fields.\n### Risk: No risk detected.\n</final>"
+    },
+    {
+      "file": "solana_18.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The code fails to implement the required security check, allowing the vulnerability to exist.\n### Vulnerability: Denial of Service (Re-initialization)\n### Explanation: The function allows setting preferred_validator_vote_address to None without checking if it was previously set, potentially disrupting normal pool operations by removing a critical configuration.\n### Risk: Medium - This vulnerability can be exploited by a malicious actor to disrupt normal pool operations.\n</final>"
+    },
+    {
+      "file": "solana_19.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Type Confusion",
+        "CPI Reentrancy",
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\n- The code fails to validate account types and ownership before deserialization, and performs two CPI burns and one CPI transfer using stale/unbounded amounts.\n### Vulnerability: Type Confusion, CPI Reentrancy, Unchecked External Calls\n### Explanation: Any account can be substituted (e.g., non-token-account for mint), and attacker can drain pool by triggering re-entrancy during burn/transfer. Second burn and transfer use unbounded `amount` instead of `possible_withdraw_amount`.\n### Risk: Critical - Complete fund loss via type confusion and re-entrancy.\n</final>"
+    },
+    {
+      "file": "solana_20.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract correctly implements the required security measure.\n### Vulnerability: Not Vulnerable\n### Explanation: The PDA for the lending market is derived using find_program_address, which returns the canonical bump. This prevents the use of non-canonical bumps to derive a different PDA.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_21.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measures.\n### Vulnerability: Not Vulnerable\n### Explanation: The checked_sub() function is used for both the source account amount and mint supply decrement, preventing underflow. The amount is explicitly validated against the source account balance before any operation. No raw subtraction operator (-) is used on financial values.\n### Risk: No risk detected.\n</final>"
+    },
+    {
+      "file": "solana_22.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly validates the canonicality of every PDA by deriving it and comparing against the provided account key.\n### Vulnerability: Not Vulnerable\n### Explanation: For each PDA (pool, pool_stake), the code derives it with the provided bump and explicitly checks that the derived address matches the provided account address. This prevents non-canonical bump attacks.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_23.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Bump Seed"
+      ],
+      "response": "<final>\n- The code uses `create_program_address` with a user-supplied `bump_seed`, allowing non-canonical bumps. An attacker can use a different valid bump to derive a different PDA and pass a forged account.\n### Vulnerability: Bump Seed Canonicalization\n### Explanation: `find_program_address` is not used, so the canonical (highest) bump is not enforced. Multiple valid bump seeds can generate distinct but valid PDAs for the same seeds, leading to account confusion or hijacking.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious user.\n</final>"
+    },
+    {
+      "file": "solana_24.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\nThe contract fails to propagate CPI errors, allowing a failed instruction to be marked as \"Success\" and the transaction to be considered executed when it did not complete.\n### Vulnerability: Unchecked External Calls\n### Explanation: The for loop silently discards any CPI error with 'let _ = invoke_signed(...)' — a failed instruction will not halt execution, and the transaction will be marked as executed even though it did not complete.\n### Risk: Critical - Funds can be locked, state can be inconsistent, or governance actions can be falsely reported as completed.\n</final>"
+    },
+    {
+      "file": "solana_25.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract checks that the multisig account is not already initialized before proceeding. This prevents re-initialization and denial of service.\n### Vulnerability: Not Vulnerable\n### Explanation: The code explicitly checks `if multisig.is_initialized` and returns an error if true, preventing a malicious actor from overwriting existing data.\n### Risk: Low — The check is present and properly enforced.\n</final>"
+    },
+    {
+      "file": "solana_26.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract enforces a signer check, validates the delegation state, verifies the program-derived authority, and cross-checks all token account ownership and ATA status.\n### Vulnerability: Not Vulnerable\n### Explanation: The authority is derived from the on-chain delegation state and verified against the provided transfer authority. Only the delegated amount can be transferred, and the ATA checks prevent account substitution.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_27.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "CPI Reentrancy"
+      ],
+      "response": "<final>\n- The code contains a CPI reentrancy vulnerability due to the incorrect ordering of state mutation and external calls.\n### Vulnerability: CPI Reentrancy\n### Explanation: The collateral is minted before the liquidity is transferred, allowing a malicious authority to re-enter the instruction and exploit stale state. This can result in loss of funds or corrupted account state.\n### Risk: Critical - This vulnerability can be directly exploited by a user with a privileged role.\n</final>"
+    },
+    {
+      "file": "solana_28.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code explicitly checks that a vote does not already exist before creating a new one and validates the vote against the proposal's configuration. Voter eligibility is verified via `assert_token_owner_or_delegate_is_signer`, and both realm and proposal data are retrieved with `get_*` helpers that presumably enforce proper ownership and type validation.\n### Vulnerability: Not Vulnerable\n### Explanation: VoteAlreadyExists prevents vote overwrite, assert_valid_vote and assert_can_cast_vote enforce proposal-specific rules, and voter authorization is validated against the token owner record.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_29.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code explicitly checks for slippage and zero trading tokens, and uses u128 for internal calculations.\n### Vulnerability: Not Vulnerable\n### Explanation: Calculator uses u128 arithmetic internally, slippage limits prevent unbounded deposits, and zero-token guards prevent invalid state transitions.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_30.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "CPI Reentrancy"
+      ],
+      "response": "<final>\n- The code violates the CPI ordering security invariant.\n### Vulnerability: CPI Reentrancy\n### Explanation: During the burn CPI, the transfer authority's balance is still at its pre-exchange value, allowing a callback to re-execute this instruction with stale state.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_31.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code checks that the name_owner is the correct signer and owner before deleting the account and transferring lamports, preventing unauthorized deletions.\n### Vulnerability: Not Vulnerable\n### Explanation: The CPI Reentrancy check is satisfied because there are no CPI calls — the lamport transfer is direct. The Unchecked External Calls check is satisfied because there are no invoke/invoke_signed calls to check. The Missing Key Check is satisfied with the owner/signer check. No other high-priority vulnerabilities from the checklist apply.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_32.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\n1. **Unchecked External Calls**: No CPI call is present; this instruction directly mutates the data buffer of an account without invoking another program. This vulnerability class does not apply.\n2. **Bump Seed Canonicalization**: No PDA derivation is present; this instruction does not derive or validate any PDA. This vulnerability class does not apply.\n3. **Integer Overflow/Underflow**: The code uses `offset as usize` and `data.len()` for slice indexing. If `offset` plus `data.len()` exceeds `usize::MAX`, the addition silently wraps, creating an out-of-bounds slice that Panics on use. This vulnerability is present.\n4. **Denial of Service (DoS)**: The code uses `data.len()` for slice indexing. If `data.len()` is zero or exceeds the available writable space, the slice is invalid, causing a panic. This vulnerability is present.\n5. **Missing Key Check (Access Control)**: The code does not verify that the caller is the owner of `data_info`; any account can write arbitrary data to any writable account. This vulnerability is present.\n6. **CPI Reentrancy**: No CPI call is present; this vulnerability class does not apply.\n7. **Type Confusion (Input Validation)**: The code treats raw bytes as a slice without validation; any `offset` and `data` pair is accepted, allowing overwrites of header data or padding. This vulnerability is present.\n\nThe contract contains a severe vulnerability from the highest-priority category (Missing Key Check) and additional issues from Integer Overflow/Underflow, Denial of Service, and Type Confusion.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: Any account can write arbitrary data to any writable account, including accounts not owned by the program. An attacker can overwrite critical state or hijack a user's data.\n### Risk: Critical — the contract's access control is completely absent, allowing arbitrary state corruption.\n</final>"
+    },
+    {
+      "file": "solana_33.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code implements proper arithmetic safety with checked_add, checked_sub, and checked_mul on all financial calculations. The re-initialization guard prevents DoS by rejecting already-initialized accounts. Oracle data is not used, so no staleness check is required. The loop over creators is bounded by the fixed-length creators list.\n### Vulnerability: Not Vulnerable\n### Explanation: Fees are calculated with safe checked arithmetic, re-initialization is prevented, and the loop over creators cannot exceed the fixed-length creators list.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_34.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The code does not implement the required security checks for the highest-priority vulnerability class present in this code category.\n### Vulnerability: Denial of Service\n### Explanation: The realloc function allows an attacker to repeatedly expand the account data, eventually exceeding the maximum allowed size and making the account unusable.\n### Risk: Medium - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_35.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract performs CPI after updating local state and properly validates and propagates all CPI results.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction completes without any CPI call — it only validates account ownership and nesting relationships, but does not invoke any external program.\n### Risk: No security risk detected.\n</final>"
+    },
+    {
+      "file": "solana_36.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract implements the correct security pattern for CPI reentrancy protection.\n### Vulnerability: Not Vulnerable\n### Explanation: State is destroyed (tokens burned) before any CPI call, so a reentrant call cannot exploit stale state. The remaining CPI calls operate on a reduced balance state.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_37.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security pattern.\n### Vulnerability: Not Vulnerable\n### Explanation: State (reserve.liquidity) is updated BEFORE the external CPI calls (spl_token_transfer and invoke), ensuring the program's state reflects the flash loan before any external program can observe or exploit it.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_38.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code uses checked_mul and rejects re-initialization.\n### Vulnerability: Not Vulnerable\n### Explanation: The arithmetic uses checked_mul to prevent overflow, and the function verifies that the bet is already settled before allowing any transfer.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_39.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The code fails to check whether the reserve account is already initialized before allowing a redeem operation, creating a re-initialization vector that can corrupt state. Additionally, missing rent exemption and stale data checks leave the program vulnerable to oracle-based DoS and account deletion.\n### Vulnerability: Denial of Service (DoS)\n### Explanation: Missing is_initialized check allows re-initialization of reserve account during redeem, corrupting existing data. Missing rent exemption check allows attacker to use non-rent-exempt accounts, which can be garbage-collected by the runtime, breaking the program's state.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_40.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe instruction correctly implements the CPI ordering pattern: state is validated and zeroed before the cross-program transfer of tokens.\n### Vulnerability: Not Vulnerable\n### Explanation: The user's deposit amount is cleared in the program's state before the transfer CPI is invoked, so a reentrant call would see zero balance and be unable to drain funds again.\n### Risk: No risk detected.\n</final>"
+    },
+    {
+      "file": "solana_41.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n1. The contract correctly implements the required security measures.\n### Vulnerability: Not Vulnerable\n### Explanation: The code uses get_associated_token_address_and_bump_seed_internal (which returns the canonical bump) and validates the derived address against the provided account, preventing the use of non-canonical bumps. Additionally, the idempotent create mode includes ownership and mint validation before returning.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_42.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Bump Seed"
+      ],
+      "response": "<final>\nThe contract uses create_program_address with a user-supplied bump seed, allowing non-canonical PDA derivation. An attacker can create a different but valid PDA to hijack the account or drain funds.\n### Vulnerability: Bump Seed Canonicalization\n### Explanation: The PDA for the associated token account is derived using create_program_address with a user-provided bump, not find_program_address. This allows a non-canonical bump to create a different PDA that still validates, leading to duplicate or hijacked accounts.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_43.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The vulnerability stems from unbounded loops that can exhaust compute resources, stale oracle data acceptance, and missing rent exemption checks.\n### Vulnerability: Denial of Service (DoS)\n### Explanation: The code allows re-initialization of already-initialized accounts, stale oracle data acceptance, and unbounded loops that can exhaust compute resources.\n### Risk: High - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_44.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract uses get_associated_token_address_and_bump_seed_internal and validates the derived address before account creation.\n### Vulnerability: Not Vulnerable\n### Explanation: PDA derivation is canonicalized internally and validated against the provided account key. Idempotent mode avoids redundant CPI calls.\n### Risk: No security risk detected.\n</final>"
+    },
+    {
+      "file": "solana_45.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n1. The contract enforces the required security measures.\n### Vulnerability: Not Vulnerable\n### Explanation: The code performs a canonical bump check by calling find_program_address internally, validates the signer with is_signer == true, and implements a state freshness check with clock.slot comparison.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_46.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract correctly prevents re-initialization, validates oracle freshness, and bounds loops.\n### Vulnerability: Not Vulnerable\n### Explanation: The resize operation is a checked call that fails on allocation failure, preventing unbounded resource exhaustion. No stale oracle data or re-initialization logic is present in this code path.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_47.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly validates the derived PDA authority against the provided account before using it.\n### Vulnerability: Not Vulnerable\n### Explanation: `authority` is derived via `find_program_address` and explicitly compared to `authority_info.key` before assignment. No raw bump seed used without canonicalization.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_48.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measure.\n### Vulnerability: Not Vulnerable\n### Explanation: The state (pool tokens) is destroyed (burned) BEFORE the output tokens are transferred, preventing any reentrant call from exploiting the old state.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_49.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code performs ownership checks for each account before use and validates the escrow balance before transfer.\n### Vulnerability: Not Vulnerable\n### Explanation: check_owner validates account ownership, and the escrow balance is explicitly checked against the requested token amount before any CPI.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_50.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Bump Seed"
+      ],
+      "response": "<final>\n- The code fails to validate the canonical bump before deriving a PDA, allowing a non-canonical bump to be accepted and compromising the uniqueness of the derived address.\n### Vulnerability: Bump Seed Canonicalization\n### Explanation: The escrow_owner_key is derived using create_program_address with an unvalidated bump_seed instead of find_program_address. An attacker can supply a non-canonical bump to derive a different but valid PDA, potentially creating a fake escrow authority and redirecting rewards.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_51.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code explicitly validates both the mint and distributor token addresses using canonical bump derivation before any CPI call, preventing PDA confusion attacks. Input accounts are not deserialized here, so type confusion is not applicable. No arithmetic or reentrancy points are present in this function.\n### Vulnerability: Not Vulnerable\n### Explanation: Both PDA addresses are verified against the provided accounts before any CPI call, and no raw account data is deserialized without prior validation.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_52.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "CPI Reentrancy"
+      ],
+      "response": "<final>\nThe code allows pool tokens to be burned without first transferring the corresponding trading tokens into the pool, enabling theft of deposited tokens.\n### Vulnerability: CPI Reentrancy\n### Explanation: Pool tokens are burned after the token transfers, so during the transfers the pool still shows a higher supply. An attacker can re-enter and withdraw more tokens than deposited.\n### Risk: CRITICAL - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_53.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code implements the required security measures against the checked vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The swap function validates both source and destination token accounts before performing any swap or fee calculation. The swap_curve().swap() function returns an Ok() only for non-zero trading amounts, and all fee calculations include .ok_or() error propagation. No CPI calls are present in this code snippet.\n### Risk: No risk detected.\n</final>"
+    },
+    {
+      "file": "solana_54.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code implements a staleness check on the reserve oracle data and rejects stale deposits, preventing oracle replay attacks. All account ownership and type checks are present, including lending market validation, reserve ownership, and supply account mismatch prevention.\n### Vulnerability: Not Vulnerable\n### Explanation: The staleness check on reserve.last_update.is_stale(clock.slot)? prevents stale oracle data acceptance. Re-initialization guards are not required here since this is a deposit function, not an initialization function.\n### Risk: No security risk detected.\n</final>"
+    },
+    {
+      "file": "solana_55.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly derives and validates the canonical PDA for the pool stake authority, ensuring only the legitimate authority can perform privileged operations.\n### Vulnerability: Not Vulnerable\n### Explanation: find_program_address returns the canonical bump, and the provided authority_key is verified against the derived address before accepting it.\n### Risk: No risk identified.\n</final>"
+    },
+    {
+      "file": "solana_56.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measure.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction follows the security check: local state (token balances) is updated BEFORE any CPI call. The transfer of user's source tokens into the pool happens first, then the transfer of destination tokens out to the user. This ordering prevents reentrancy attacks because the pool's state is already updated before any external program can be invoked.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_57.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\n- The code fails to verify that the caller is authorized to change the reserve configuration, allowing any user to modify sensitive reserve parameters.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: Any account can invoke this instruction to overwrite reserve configuration values like fees and deposit limits.\n### Risk: Critical - Unrestricted configuration changes can corrupt pool economics and compromise user funds.\n</final>"
+    },
+    {
+      "file": "solana_58.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code uses checked arithmetic (checked_pow, try_add, try_mul, try_div) for all financial calculations, implements staleness checks on oracle data, and processes collateral deposits with bounded iteration over the deposits list.\n### Vulnerability: Not Vulnerable\n### Explanation: checked_pow prevents overflow in decimal exponentiation, try_add/try_mul/try_div prevent arithmetic overflows in value accumulation, and the staleness check on deposit_reserve.last_update prevents stale oracle price acceptance.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_59.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the CPI ordering security pattern: state validation (delegation check) occurs before any CPI, and the two transfers are performed in a sequence where neither can re-enter and exploit stale state.\n### Vulnerability: Not Vulnerable\n### Explanation: maker delegation is validated before any transfer, and the two transfers are sequential, not nested, so neither can be exploited by a re-entry during the other.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_60.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Bump Seed"
+      ],
+      "response": "<final>\n- The program uses a missing or non-canonical bump to derive a PDA, allowing spoofing or resource hijacking.\n### Vulnerability: Bump Seed Canonicalization\n### Explanation: The `LogMessage` PDA is derived with an arbitrary authority instead of find_program_address, so any user can log as any authority. No authority check is performed.\n### Risk: HIGH - An attacker can spoof any authority's message.\n</final>"
+    },
+    {
+      "file": "solana_61.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract correctly implements the required security measures against the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction requires the caller to be a signer via the `Signer` type in the `LogMessage` accounts struct. This means only the wallet that signed the transaction can invoke the instruction.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_62.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\nThe contract displays a missing account-type validation that allows arbitrary accounts to be treated as token accounts.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: The token account is read with raw AccountInfo instead of the typed Account<AnchorTokenAccount> wrapper, allowing a non-token account to be passed and causing a failed unpack() or a misleading balance read.\n### Risk: Medium - This can be exploited to cause a program halt or to misrepresent balances.\n</final>"
+    },
+    {
+      "file": "solana_63.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measures.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction handler validates that the provided token account belongs to the caller (authority.key == &token.owner) before reading and logging its balance. This prevents unauthorized access to account data.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_64.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract uses Anchor's Accounts derive macro, which automatically validates account ownership and type against the declared Account type.\n### Vulnerability: Not Vulnerable\n### Explanation: The rent account is accepted as an AccountInfo, not deserialized as a typed account. No PDA derivation, CPI call, or arithmetic is present.\n### Risk: No security impact.\n</final>"
+    },
+    {
+      "file": "solana_65.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract correctly implements the required security measure by using the Anchor `Sysvar` type, which enforces type-checked access to sysvar accounts.\n### Vulnerability: Not Vulnerable\n### Explanation: The `rent` account is declared as `Sysvar<'info, Rent>`, which is a type-safe wrapper that ensures the account is the canonical Rent sysvar. This prevents type confusion attacks, as the account is validated at runtime before it can be used.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_66.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe code correctly implements the required security measure by explicitly comparing the provided authority with the token's owner before proceeding.\n### Vulnerability: Not Vulnerable\n### Explanation: The program validates that the provided authority matches the token account's owner before logging the balance, preventing unauthorized access.\n### Risk: No significant risk.\n</final>"
+    },
+    {
+      "file": "solana_67.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code implements the required security measures against the analyzed vulnerability class.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction uses a constraint to verify that the authority matches the token account owner, and the Signer attribute ensures the caller has signed the transaction. No missing key check leaves privileged operations exposed.\n### Risk: No risk identified.\n</final>"
+    },
+    {
+      "file": "solana_68.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\n1. The code does not check the return value of the CPI call.\n### Vulnerability: Unchecked External Calls\n### Explanation: proposal_owner_record_data.assert_token_owner_or_delegate_is_signer returns a Result but is not checked with ?. If this check fails, the instruction proceeds as if the signer was validated, allowing unauthorized proposal cancellation.\n### Risk: HIGH - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_69.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe instruction correctly enforces access control, proposal validity, and data consistency before cancellation.\n### Vulnerability: Not Vulnerable\n### Explanation: The code validates the realm, governance, and proposal data before cancellation, checks that the signer is the token owner or delegate, and ensures the proposal is in a cancelable state before modifying its state and associated counters.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_70.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The contract contains a missing re-initialization guard, allowing an attacker to overwrite an already-initialized account and disrupt its normal operation.\n### Vulnerability: Denial of Service (Re-initialization)\n### Explanation: The `initialize` function does not check whether the `user` account is already initialized before writing a new authority. If the account already contains a legitimate `User` struct, its data is silently overwritten, potentially causing a contract state corruption or denial of service for the original user.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_71.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Denial of Service"
+      ],
+      "response": "<final>\n- The contract contains a missing re-initialization guard, allowing already-initialized accounts to be overwritten and user resources to be lost.\n### Vulnerability: Denial of Service (DoS)\n### Explanation: The `init` instruction does not check whether the `user` account has already been initialized. An attacker can call `init` on an already-initialized account, overwriting its stored authority. This breaks the account's state and prevents legitimate use.\n### Risk: High - This vulnerability can be directly exploited by any user.\n</final>"
+    },
+    {
+      "file": "solana_72.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract properly checks the signer, owner, and canonical bump before using the authority to perform the collateral withdrawal.\n### Vulnerability: Not Vulnerable\n### Explanation: The authority signer is validated against the on-chain stored authority before being used, and the obligation owner and signer are both checked.\n### Risk: No risk.\n</final>"
+    },
+    {
+      "file": "solana_73.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n1. The code is checked for CPI Reentrancy, and the check passes: state is mutated and persisted before the CPI call. For Denial of Service, the code is checked and the check passes: the function does not handle initialization, oracle data, or unbounded loops. For Type Confusion, the code is checked and the check passes: the function uses typed unpack/load helpers for account deserialization. For Integer Overflow/Underflow, the code is checked and the check passes: the function uses safe math helpers (min) for numeric operations. For Missing Key Check, the code is checked and the check passes: the function verifies signer status and owner matching before any state mutation. For Unchecked External Calls, the code is checked and the check passes: the function uses the checked-spl helpers for token transfers. For Bump Seed Canonicalization, the code is checked and the check passes: the function derives the authority address from a stored canonical bump and rejects any mismatch.\n### Vulnerability: Not Vulnerable\n### Explanation: State is mutated and persisted before the CPI call. The function does not handle initialization, oracle data, or unbounded loops. Typed unpack/load helpers are used for account deserialization. Safe math helpers (min) are used for numeric operations. Signer status and owner matching are verified before any state mutation. The authority address is derived from a stored canonical bump and any mismatch is rejected.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_74.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "CPI Reentrancy"
+      ],
+      "response": "<final>\nThe contract fails to update local state before performing a CPI, allowing a reentrant call to observe and exploit stale state.\n### Vulnerability: CPI Reentrancy\n### Explanation: The token transfer CPI is issued before the obligation's collateral is marked as withdrawn. If the token program (or an extension hook) re-enters this program during the transfer, it will see the collateral as still deposited and can re-initiate the withdrawal.\n### Risk: CRITICAL - This vulnerability can be directly exploited by a malicious token extension hook.\n</final>"
+    },
+    {
+      "file": "solana_75.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code implements proper security measures against the analyzed vulnerability classes.\n### Vulnerability: Not Vulnerable\n### Explanation: Re-initialization guards prevent double-initialization DoS, the authority PDA is derived from a stored canonical bump (not a passed-in bump) to prevent type confusion, and state is mutated before the CPI to prevent reentrancy.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_76.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\n- The contract silently discards the result of the stake_withdraw CPI, allowing withdrawals to fail while the pool state is still decremented as if the withdrawal succeeded.\n### Vulnerability: Unchecked External Calls\n### Explanation: The stake_withdraw CPI result is assigned to `_` instead of being checked. If the stake program fails to move the lamports (e.g. reserve stake account is locked or has insufficient balance), the error is silently swallowed and execution continues as if the withdrawal succeeded, creating a discrepancy between pool state and actual stake balances.\n### Risk: High - attacker can drain pool tokens without receiving lamports.\n</final>"
+    },
+    {
+      "file": "solana_77.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract checks for initialization guards, performs state updates before CPI calls, validates oracle freshness, and uses safe arithmetic.\n### Vulnerability: Not Vulnerable\n### Explanation: All seven vulnerability classes are properly addressed: re-initialization guards, CPI ordering (state updated before cross-program calls), oracle staleness checks, safe math, access control, checked external calls, and bump seed canonicalization.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_78.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\nThe function fails to validate the governance and proposal accounts against the expected types and ownership binding, enabling an attacker to pass spoofed accounts and corrupt governance state.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: Governance and proposal state are deserialized directly from raw bytes, skipping get_governance_data and get_proposal_data_for_governance, so neither the account_type discriminator nor the binding between this proposal and this governance account is checked.\n### Risk: High - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_79.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code enforces the required security measures against the analyzed vulnerability class and also handles additional checks beyond the checklist.\n### Vulnerability: Not Vulnerable\n### Explanation: The function validates that the signatory record account is empty before creating it (prevents re-initialization DoS), verifies the signatory address against required signatory data or token owner authority, and uses a canonical PDA derivation for signatory record creation (prevents CPI reentrancy and type confusion). The `checked_add` prevents arithmetic overflow.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_80.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "Integer Overflow"
+      ],
+      "response": "<final>\n- The code fails to use checked arithmetic for a subtraction, allowing a wraparound to a huge u64 value that corrupts the deposit balance.\n### Vulnerability: Integer Overflow/Underflow\n### Explanation: The raw subtraction `token_owner_record_data.governing_token_deposit_amount = token_owner_record_data.governing_token_deposit_amount - amount` can underflow if `amount > token_owner_record_data.governing_token_deposit_amount`, wrapping around to a large u64 instead of erroring. This silently corrupts the recorded deposit amount, potentially allowing theft or double-counting of tokens.\n### Risk: High - This vulnerability can be directly exploited by an attacker with a large `amount` parameter.\n</final>"
+    },
+    {
+      "file": "solana_81.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code enforces proper security checks against missing key validation, re-initialization, and unbounded operations.\n### Vulnerability: Not Vulnerable\n### Explanation: The instruction verifies either the token_owner_record's owner is signing, or the mint authority is signing; checked_sub prevents underflow; no unbounded loops or missing rent checks.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_82.json",
+      "ground_truth": "Integer Overflow",
+      "predictions": [
+        "Integer Overflow"
+      ],
+      "response": "<final>\nThe code uses a raw increment (`option.transactions_next_index += 1`) instead of a checked increment, allowing the index to silently wrap from `u16::MAX` back to 0. This can cause instruction_index collisions and overwrites.\n### Vulnerability: Integer Overflow/Underflow\n### Explanation: When `option.transactions_next_index` reaches u16::MAX, incrementing it wraps to 0 silently, allowing a later call with instruction_index = 0 to overwrite the first transaction instead of failing.\n### Risk: High - This can corrupt governance state and allow proposal instructions to be overwritten and re-executed.\n</final>"
+    },
+    {
+      "file": "solana_83.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract explicitly validates the instruction index against the current transaction index and uses `checked_add` to reject index wrapping. CPI calls are limited to `create_and_serialize_account_signed`, which is a single trusted CPI and not a looped or unchecked invoke pattern.\n### Vulnerability: Not Vulnerable\n### Explanation: Index validation and `checked_add` reject out-of-order or wrapped indices before any CPI. Only one CPI (`create_and_serialize_account_signed`) is used, and it is not discarded or ignored.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_84.json",
+      "ground_truth": "Denial of Service",
+      "predictions": [
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\n- The code fails to prevent re-use of an existing ProposalTransactionV2 account due to a removed data-is-empty check, allowing a transaction to be inserted multiple times against the same proposal slot.\n### Vulnerability: Unchecked External Calls\n### Explanation: The removed check for proposal_transaction_info.data_is_empty() means this instruction can be replayed against an existing ProposalTransactionV2 account, causing duplicate transaction records.\n### Risk: High - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_85.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly enforces the required security invariants.\n### Vulnerability: Not Vulnerable\n### Explanation: Every CPI call (create_and_serialize_account_signed) propagates its Result with '?'. Every account is validated before use: governance, proposal, token_owner_record, and proposal_transaction are all retrieved via typed get_*_data helpers that check account type and ownership. checked_add is used for index increment, rejecting overflow. Reentrancy is not possible since this is an insert-only instruction with no cross-program invocation during the critical section.\n### Risk: No significant risk detected.\n</final>"
+    },
+    {
+      "file": "solana_86.json",
+      "ground_truth": "Bump Seed",
+      "predictions": [
+        "Bump Seed"
+      ],
+      "response": "<final>\n1. The code uses `create_program_address` with a bump seed supplied by the instruction data, not `find_program_address`. This means a non-canonical bump can be used to derive a different valid PDA, potentially creating duplicate governance accounts or hijacking resources.\n### Vulnerability: Bump Seed Canonicalization\n### Explanation: An attacker can supply a non-canonical bump to create a different PDA that the program still accepts, corrupting the governance state or stealing authority.\n### Risk: CRITICAL - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_87.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measure.\n### Vulnerability: Not Vulnerable\n### Explanation: PDA derivation uses find_program_address internally via create_and_serialize_account_signed, which guarantees the canonical bump. The attacker cannot supply a non-canonical bump to derive a different PDA.\n### Risk: No risk detected.\n</final>"
+    },
+    {
+      "file": "solana_88.json",
+      "ground_truth": "Type Confusion",
+      "predictions": [
+        "Type Confusion"
+      ],
+      "response": "<final>\n- The code fails to validate the type and ownership of the proposal_deposit_info account before deserializing and disposing it, allowing a user to pass a malicious account that appears to be a ProposalDeposit.\n### Vulnerability: Type Confusion (Input Validation)\n### Explanation: The proposal_deposit_data is deserialized directly from raw bytes without checking account_type or binding to the (proposal, payer) pair, allowing a user to pass a malicious account that appears to be a ProposalDeposit.\n### Risk: High - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_89.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The code correctly implements the required security measure: state is validated and checked before any CPI occurs, preventing reentrancy.\n### Vulnerability: Not Vulnerable\n### Explanation: The proposal's refund eligibility is checked (assert_can_refund_proposal_deposit) and the deposit record is verified to belong to this specific proposal and payer (get_proposal_deposit_data_for_proposal_and_deposit_payer) before the account is disposed of.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_90.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\n- The vulnerability stems from missing access control: anyone can invoke this instruction with a governance account and change its configuration directly, bypassing the proposal-execution workflow.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: No check that governance_info is a signer -- anyone can pass the governance account and rewrite its config directly, bypassing the requirement that config changes only happen via an executed proposal.\n### Risk: High - This vulnerability can be exploited by an attacker to compromise the program's security and potentially cause fund loss.\n</final>"
+    },
+    {
+      "file": "solana_91.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The instruction requires the governance PDA (the only authorized signer for this instruction) to sign the config change before applying it.\n### Vulnerability: Not Vulnerable\n### Explanation: The code explicitly checks that the caller is a signer (`governance_info.is_signer`) and only then proceeds to update the governance config. No privileged operation is performed without a required key check.\n### Risk: No risk.\n</final>"
+    },
+    {
+      "file": "solana_92.json",
+      "ground_truth": "Unchecked External Calls",
+      "predictions": [
+        "Unchecked External Calls"
+      ],
+      "response": "<final>\n- The contract discards the result of the invoke_signed call, which means a failed transfer goes unnoticed.\n### Vulnerability: Unchecked External Calls\n### Explanation: If the system_program transfer fails (e.g., due to insufficient balance), the error is silently ignored, leaving the fee account's lamports untouched while the instruction still returns success.\n### Risk: Medium - This can corrupt the contract's state or mislead users into thinking a withdrawal succeeded when it actually failed.\n</final>"
+    },
+    {
+      "file": "solana_93.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\n- The code fails to verify that the caller has the authority to withdraw funds from the fee account, allowing unauthorized users to drain the account.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: The `withdraw_from_fee` instruction does not check whether the caller is the authorized fee withdrawer or any other required signer. An attacker can invoke this instruction and transfer any amount from the fee account to a destination of their choice.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor to drain the fee account.\n</final>"
+    },
+    {
+      "file": "solana_94.json",
+      "ground_truth": "cpi",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract implements the correct security pattern: state is updated (burn flag set) AFTER the CPI call, not before.\n### Vulnerability: Not Vulnerable\n### Explanation: The withdrawal receipt is burned only after the cross-program invocation (CPI) to transfer tokens has completed. This ordering prevents re-entrancy attacks that could exploit stale state.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_95.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\n- The contract checks the timelock before proceeding, validates both vault keys against the member's stored balances, and burns the withdrawal receipt before the CPI transfer to prevent reentrancy.\n### Vulnerability: Not Vulnerable\n### Explanation: The code correctly validates the vault keys, enforces the timelock check, and burns the withdrawal receipt before the CPI transfer, ensuring the receipt cannot be reused in a reentrant call.\n### Risk: No significant risk identified.\n</final>"
+    },
+    {
+      "file": "solana_96.json",
+      "ground_truth": "Missing Key Check",
+      "predictions": [
+        "Missing Key Check"
+      ],
+      "response": "<final>\n- The vulnerability stems from missing or inadequate security measures.\n### Vulnerability: Missing Key Check (Access Control)\n### Explanation: Any user can update the name record's data, hijacking the name or corrupting its contents. The signer is never verified against the record's owner, class, or parent delegation.\n### Risk: Critical - This vulnerability can be directly exploited by a malicious actor.\n</final>"
+    },
+    {
+      "file": "solana_97.json",
+      "ground_truth": "Not Vulnerable",
+      "predictions": [
+        "Not Vulnerable"
+      ],
+      "response": "<final>\nThe contract implements a multi-layered access control policy: it requires the signer to match either the stored class account, the stored owner account, or the owner of the parent name, with an explicit is_signer check.\n### Vulnerability: Not Vulnerable\n### Explanation: The signer is validated against multiple possible authorities (class, owner, or parent owner), with an explicit is_signer == true check required before any update is applied.\n### Risk: No significant risk detected.\n</final>"
+    }
+  ]
+}

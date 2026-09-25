@@ -1,0 +1,21 @@
+
+--------------------------------------------------Audit-------------------------------------------------- I am analyzing this PyTeal contract that implements a payment splitting mechanism. The contract appears to be a stateless smart signature that validates payment transactions based on group size and specific conditions. Let me break down the logic systematically.
+
+     First, the contract has a `split_core` function that validates basic transaction properties for all payment transactions. It checks that the transaction type is Payment, the fee is below a template limit (1000 microAlgos), and crucially, that the `rekey_to` field is set to the zero address. This is good security practice to prevent rekeying attacks.
+
+     The main logic branches based on group size:
+     - For group size 2: The `split_transfer` function handles the payment splitting logic. It validates that both transactions have the same sender, that `close_remainder_to` is zero (preventing account closure), and that the receivers and amounts match the predefined template values. The amount calculation uses the ratio parameters.
+     - For other group sizes: The `split_close` function allows account closure after a timeout period, which is a standard feature.
+
+     Now, examining the security checks more carefully: The contract explicitly validates `rekey_to` in the core function and `close_remainder_to` in the transfer path. However, I notice that while `rekey_to` is checked, there's no validation of the `close_remainder_to` field in the `split_close` branch. The `split_close` function only checks that the receiver is zero address and the amount is zero, but it doesn't verify that `close_remainder_to` is also zero. This means an attacker could potentially specify a non-zero `close_remainder_to` address when calling the close function, which would drain the account to that address instead of the intended zero address.
+
+</think>
+
+<final>
+
+
+The contract implements a payment splitting mechanism but contains a critical flaw in account closure validation.
+### Vulnerability: Unchecked Close Remainder To
+### Explanation: The contract fails to validate the `close_remainder_to` field in the account closure branch (when group size ≠ 2), allowing an attacker to specify an arbitrary address that will receive the remaining account balance when the close function is called.
+### Risk: Critical - Complete loss of account funds to an attacker-controlled address
+</final>

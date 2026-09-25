@@ -1,0 +1,50 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding what this PyTeal contract does. The contract is a stateless smart contract (logic signature) that validates a group of six transactions. Each transaction in the group is checked against specific conditions.
+
+First, the contract checks that the group size is exactly 6. Then, each transaction (txn0 to txn5) is validated individually. 
+
+Looking at each transaction:
+
+- **txn0** is an ApplicationCall with args "create", app ID 0, fee <= 2000, and rekey_to is zero. This seems okay because it checks rekey_to is zero. 
+
+- **txn1** is a Payment transaction. It checks the receiver is a specific address, amount >= 1,000,000, fee <= 1000, and rekey_to is zero. The receiver is restricted, so Unchecked Payment Receiver isn't an issue here. Also, close_remainder_to isn't checked here, but since it's a payment transaction, maybe it's allowed to be zero. Wait, the Unchecked Close Remainder To vulnerability applies to payments. The contract must explicitly check that close_remainder_to is zero unless it's a trusted address. Let me check txn1 again. Oh, txn1 doesn't check close_remainder_to at all. That's a problem because the vulnerability requires explicit validation. So this is a missing check.
+
+Wait, but txn1 is a payment transaction. The Unchecked Close Remainder To vulnerability applies to stateless contracts authorizing payments. Since the contract doesn't check close_remainder_to in txn1, that's a vulnerability. The code doesn't have Gtxn[1].close_remainder_to() == Global.zero_address(). So that's a missing check.
+
+Next, **txn2** is an AssetTransfer. It checks asset_receiver is a specific address, amount >= 200, rekey_to is zero, asset_close_to is zero, and fee <= 1200. Since asset_close_to is checked, Unchecked Asset Close To isn't an issue here. Also, asset_receiver is restricted, so Unchecked Asset Receiver is okay.
+
+**txn3** is another ApplicationCall. It checks rekey_to is zero. No issues here.
+
+**txn4** is a Payment transaction. It checks receiver is specific, amount >= 500,000, fee <= 1500, rekey_to zero, and close_remainder_to zero. So close_remainder_to is checked here. So no issue here.
+
+**txn5** is an AssetTransfer. It checks asset_receiver is specific, amount >= 300, rekey_to zero, asset_close_to zero, and fee <= 1100. All checks are present.
+
+Now, looking at the vulnerabilities checklist:
+
+1. **Unchecked Transaction Fee**: The contract checks fees for each transaction. For example, txn0 has fee <= 2000, etc. Since each transaction's fee is explicitly checked, this vulnerability isn't present.
+
+2. **Unchecked Close Remainder To**: Applies to Payment transactions. txn1 is a Payment but doesn't check close_remainder_to. The contract doesn't have a check for Gtxn[1].close_remainder_to() == Global.zero_address(). So this is a vulnerability. The precondition applies because it's a stateless contract authorizing payments.
+
+3. **Unchecked Asset Close To**: In txn2 and txn5, asset_close_to is checked. So no issues here.
+
+4. **Unchecked Rekey To**: All transactions (txn0, txn1, txn2, txn3, txn4, txn5) check rekey_to is zero. So no issues here.
+
+5. **Unchecked Payment Receiver**: txn1 and txn4 restrict receivers to specific addresses. So no issues.
+
+6. **Unchecked Asset Receiver**: txn2 and txn5 restrict asset receivers. No issues.
+
+7. **Arbitrary Update/Delete**: The contract is stateless (logic signature), so these don't apply.
+
+So the main vulnerability here is Unchecked Close Remainder To in txn1. The contract doesn't check close_remainder_to for that payment transaction. An attacker could set close_remainder_to to their own address, draining funds from the sender's account when the transaction is executed.
+</think>
+
+<final>
+### Vulnerability: Unchecked Close Remainder To  
+### Explanation: The Payment transaction `txn1` does not explicitly validate `close_remainder_to() == Global.zero_address()`. This allows an attacker to redirect the sender's remaining funds to an arbitrary address via the `close_remainder_to` field.  
+### Risk: High - An attacker could steal residual funds from the sender's account when executing the transaction group.  
+
+### Vulnerability: Not Vulnerable  
+### Explanation: All other transactions include required checks for fees, rekey_to, asset_close_to, and restricted receivers. ApplicationCall transactions are not subject to rekeying or close_remainder_to.  
+### Risk: N/A  
+</final>

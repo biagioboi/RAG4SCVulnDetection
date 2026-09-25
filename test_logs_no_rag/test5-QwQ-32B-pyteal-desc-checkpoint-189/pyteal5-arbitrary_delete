@@ -1,0 +1,35 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal voting contract systematically. First, I'll understand the overall structure - this is a stateful application contract implementing a voting system with registration periods, voting periods, and tallying.
+
+     Breaking down the components:
+     - **on_creation**: Initializes the contract with timing parameters and sets the creator
+     - **is_creator**: Helper function to check if sender is creator
+     - **get_vote_of_sender**: Helper to retrieve user's vote from local state
+     - **on_closeout**: Handles account closure by decrementing vote tally if within voting period
+     - **on_register**: Handles opt-in during registration period
+     - **on_vote**: Handles voting logic with period checks and vote recording
+
+     Now examining the security controls for application lifecycle operations:
+     - `OnComplete.DeleteApplication`: Returns `Int(1)` (always allowed)
+     - `OnComplete.UpdateApplication`: Returns `is_creator` (only creator can update)
+     - `OnComplete.CloseOut`: Uses `on_closeout` logic
+     - `OnComplete.OptIn`: Uses `on_register` logic
+
+     The vulnerability checklist indicates we should check for arbitrary update/delete. Looking at the DeleteApplication handler, it unconditionally returns `Int(1)` which means ANYONE can delete the application at ANY time. This is problematic because:
+     - The contract holds global state (vote tallies)
+     - Any user can permanently destroy the contract and its data
+     - This bypasses any intended voting logic or access controls
+
+     The UpdateApplication handler properly restricts to the creator, but the DeleteApplication handler has no such restriction. This creates an inconsistency where update is protected but deletion is completely open.
+
+</think>
+
+<final>
+
+
+The contract implements a voting system but contains a critical access control flaw in application deletion.
+
+### Vulnerability: Arbitrary Delete
+### Explanation: The contract unconditionally allows ANY user to delete the application by returning `Int(1)` in the `OnComplete.DeleteApplication` handler, allowing permanent destruction of the contract and its voting data without authorization checks.
+### Risk: Critical - Allows complete and irreversible destruction of the voting application and all associated data by any malicious actor.
+</final>

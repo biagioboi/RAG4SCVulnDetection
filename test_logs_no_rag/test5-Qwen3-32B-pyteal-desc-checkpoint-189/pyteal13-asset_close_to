@@ -1,0 +1,44 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a stateless smart signature (LogicSig) that validates a single asset transfer transaction.
+
+     First, I'll examine the overall structure. The contract defines several constants at the top:
+     - `primary_receiver`: An address that seems to be defined but not used in the validation logic
+     - `maximum_amount`: Set to 200,000 microAlgos
+     - `expiration_time`: Set to 90,000 - interestingly this value is used for both asset ID and amount
+
+     Now let me walk through the validation logic line by line:
+
+     1. `group_check = Global.group_size() == Int(1)` - Ensures only one transaction in the group
+     2. `Gtxn[0].type_enum() == TxnType.AssetTransfer` - Validates it's an asset transfer
+     3. `Gtxn[0].fee() <= maximum_amount` - Checks fee is within limit (200,000 microAlgos)
+     4. `Gtxn[0].xfer_asset() == expiration_time` - This is concerning - it's using the expiration_time value (90,000) as the asset ID
+     5. `Gtxn[0].asset_receiver() == Addr("BN2R5VU5TF2U7JM4DDYN4UGJBPGO7CMCKAPCRSPAD6KXBJLWP53JCDFLG4")` - Validates receiver address
+     6. `Gtxn[0].asset_amount() == expiration_time` - Again using expiration_time (90,000) as the asset amount
+     7. `Gtxn[0].note() == Bytes("Transfer1")` - Validates note field
+     8. `Gtxn[0].rekey_to() == Global.zero_address()` - Properly checks rekey_to
+
+     Looking at the security checks:
+     - ✅ Fee is checked and limited
+     - ✅ Rekey_to is properly validated
+     - ✅ Receiver is explicitly checked
+     - ❌ Asset close_to is NOT checked - This is a critical omission
+     - ❌ Close_remainder_to is NOT checked - Not applicable for asset transfers but good practice
+     - ❌ Asset close_to is completely missing from validation
+
+     The contract validates many fields but completely misses the `asset_close_to` field. In Algorand, asset transfers can include a close-to address that closes the entire asset balance from the sender's account. Without validating this field, an attacker could specify any address as the close-to recipient and drain all assets of that type from the account.
+
+     The use of `expiration_time` for both asset ID and amount seems like a logical error rather than a security vulnerability, but it could indicate the contract wasn't properly designed.
+
+     The contract appears to be intended for a specific asset transfer scenario but fails to protect against asset account closure.
+
+    </think>
+
+<final>
+
+
+The contract contains a critical vulnerability where the asset close-to address is not validated, allowing complete drainage of the specified asset from the account.
+
+### Vulnerability: Unchecked Asset Close To
+### Explanation: The contract fails to validate the asset_close_to field in asset transfer transactions, allowing an attacker to specify any address as the close-to recipient and drain all assets of the specified type from the account.
+### Risk: Critical - Complete loss of all assets of the specified type from the account
+</final>

@@ -1,0 +1,53 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a pension system contract where a company contributes funds and employees can withdraw pensions.
+
+     First, looking at the overall structure:
+     - It's a stateful application with initialization, contribution, pension setting, deletion, and withdrawal functions
+     - Uses global state to track company address, fund balance, and pension amount
+     - Has a clear state program that always returns 1
+
+     Now examining each component:
+
+     **Initialization**: Sets up the company address and initializes fund and pension to zero. Standard setup.
+
+     **Contribute**: Only allows the company to add funds to the global state. Proper authorization check.
+
+     **Set Pension**: Only company can set the pension amount. Proper authorization.
+
+     **Handle Delete**: Only company can delete the application. Proper authorization.
+
+     **Withdraw**: This is the most complex part. It requires:
+     - Group size of 2 transactions
+     - Company as sender of first transaction
+     - Sufficient funds in the pension fund
+     - Then creates an inner payment transaction
+
+     Here's where I need to focus - the inner payment transaction in the withdraw function. Let me examine this carefully:
+
+     The inner payment transaction is created with:
+     - `InnerTxnBuilder.SetField(TxnField.amount, App.globalGet(pension_key))` - sets the amount from global state
+     - `InnerTxnBuilder.SetField(TxnField.receiver, Gtxn[1].receiver())` - sets the receiver to the receiver of the second transaction in the group
+     - But wait, I don't see any validation of the `close_remainder_to` field for this payment transaction!
+
+     The vulnerability here is that when creating the inner payment transaction, the contract doesn't check the `close_remainder_to` field. This means an attacker could craft a transaction group where the second transaction has a `close_remainder_to` address set to their own address. When the inner payment executes, it would close the account and send any remaining balance to the attacker.
+
+     Let me verify this step-by-step:
+     1. The withdraw function requires a group of 2 transactions
+     2. The second transaction in the group is controlled by the attacker
+     3. The attacker sets `close_remainder_to` to their address in the second transaction
+     4. The inner payment transaction uses `Gtxn[1].receiver()` but doesn't validate `close_remainder_to`
+     5. When the inner payment executes, it would close the account and send remaining funds to attacker
+
+     This is a classic Unchecked Close Remainder To vulnerability where the contract fails to validate that `close_remainder_to` is set to zero address.
+
+</think>
+
+<final>
+
+
+The contract contains a critical vulnerability where payment transactions do not validate the close_remainder_to field, allowing attackers to drain account balances.
+
+### Vulnerability: Unchecked Close Remainder To
+### Explanation: The withdraw function creates an inner payment transaction without validating the close_remainder_to field, allowing attackers to specify their own address and drain the account's remaining balance when making pension withdrawals.
+### Risk: Critical - Can result in complete loss of funds from pension withdrawal transactions
+</final>

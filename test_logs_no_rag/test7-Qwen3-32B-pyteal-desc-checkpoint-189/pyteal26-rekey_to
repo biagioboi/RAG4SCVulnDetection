@@ -1,0 +1,45 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+
+
+Let me analyze this PyTeal smart signature code systematically. The contract appears to be a logic signature that validates a transaction group of exactly 2 transactions - a payment followed by an asset transfer.
+
+First, I'll examine the overall structure:
+- `valid_group_size` ensures exactly 2 transactions in the group
+- `payment_txn_check` validates the first transaction (payment)
+- `asset_transfer_check` validates the second transaction (asset transfer)
+- The final logic combines all checks with AND
+
+Now let's analyze each transaction type:
+
+**Payment Transaction (Gtxn[0]):**
+- Type check: `TxnType.Payment` ✅
+- Amount limit: `<= 1000000` ✅
+- Receiver check: specific hardcoded address ✅
+- Fee limit: `<= 1000` ✅
+- Close remainder to: `== Global.zero_address()` ✅
+- **Missing check:** No validation of `rekey_to()` field
+
+**Asset Transfer Transaction (Gtxn[1]):**
+- Type check: `TxnType.AssetTransfer` ✅
+- Asset receiver: specific hardcoded address ✅
+- Asset amount limit: `<= 1000000` ✅
+- Fee limit: `<= 1000` ✅
+- Rekey to: `== Global.zero_address()` ✅
+- Asset close to: `== Global.zero_address()` ✅
+
+The critical issue I notice is in the payment transaction validation. While the asset transfer transaction properly checks `rekey_to() == Global.zero_address()`, the payment transaction completely omits this check. This means an attacker could include a rekey operation in the payment transaction that would change the authorization authority of the account.
+
+Since this is a smart signature (logic signature) that authorizes transactions, the absence of rekey validation means an attacker could craft a transaction group where the payment transaction includes a rekey_to field pointing to their own address. This would permanently transfer control of the account to the attacker after the transaction executes.
+
+</think>
+
+<final>
+
+
+The contract contains a critical vulnerability where payment transactions are not properly validated against rekey attacks, allowing potential account takeover.
+
+### Vulnerability: Unchecked Rekey To
+### Explanation: The payment transaction validation logic fails to check the rekey_to field, allowing an attacker to include a rekey operation that could permanently transfer account control to an unauthorized address.
+### Risk: Critical - Allows complete account takeover and loss of all funds/assets controlled by the account
+</final>

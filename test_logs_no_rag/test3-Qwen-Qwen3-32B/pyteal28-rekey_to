@@ -1,0 +1,38 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. The code is a PyTeal smart contract that checks a group of three transactions. The first transaction must be an ApplicationCall initializing an order, the second a payment to a specific address, and the third an asset transfer to another specific address. 
+
+Looking at the vulnerabilities checklist:
+
+1. **Unchecked Transaction Fee**: The contract checks fees for all three transactions (each has `fee() <= Int(100)`), so this is covered.
+
+2. **Unchecked Close Remainder To**: The second transaction (payment) has `close_remainder_to == zero_address()`, which is correct. So no issue here.
+
+3. **Unchecked Asset Close To**: The third transaction checks `asset_close_to == zero_address()`, so this is handled.
+
+4. **Unchecked Rekey To**: The contract doesn't check `rekey_to()` for any transaction. Since it's a smart signature authorizing payments and asset transfers, missing rekey checks could allow attackers to rekey the account, leading to unauthorized control. This is a problem.
+
+5. **Unchecked Payment Receiver**: The second transaction's receiver is fixed to a specific address, so it's restricted. No issue here.
+
+6. **Unchecked Asset Receiver**: The third transaction's asset receiver is fixed, so it's okay.
+
+7. **Arbitrary Update/Delete**: The contract isn't stateful (it's a signature mode contract), so these don't apply.
+
+So the main vulnerability is the missing `rekey_to()` checks in the transactions. Since the contract is a smart signature authorizing payments and asset transfers, an attacker could include a transaction with a rekey_to field to take control of the account. The code doesn't check this, making it vulnerable.
+</think>
+
+### Vulnerability: Unchecked Rekey To  
+### Explanation: The contract does not validate `rekey_to()` fields in any of the three transactions. Since it's a smart signature authorizing Payment and AssetTransfer transactions, an attacker could include a transaction with `rekey_to` set to their address, allowing them to rekey the sender's account and take control.  
+### Risk: High - Attackers could steal control of user accounts by exploiting missing rekey checks in authorized transactions.  
+
+### Vulnerability: Not Vulnerable (Other Checks)  
+### Explanation: Transaction fees, close_remainder_to, asset_close_to, payment receiver, and asset receiver are all explicitly validated. The contract is stateless (signature mode), so Arbitrary Update/Delete checks do not apply.  
+### Risk: N/A  
+
+<final>  
+The contract is vulnerable due to missing `rekey_to()` validation in authorized transactions.  
+
+### Vulnerability: Unchecked Rekey To  
+### Explanation: The contract does not enforce `rekey_to() == Global.zero_address()` on any transaction. This allows attackers to include a transaction with a malicious `rekey_to` field, enabling account takeover.  
+### Risk: High - Enables unauthorized account rekeying, leading to fund theft or further attacks.  
+</final>

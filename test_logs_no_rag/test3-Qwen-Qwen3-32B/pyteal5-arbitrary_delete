@@ -1,0 +1,36 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. The approval program is for an Algorand smart contract that manages a voting system. It sets up global variables like registration and voting periods, allows users to opt-in (register), vote, and close out their participation. The clear state program handles removing local state when a user leaves.
+
+Looking at the vulnerabilities checklist:
+
+1. **Unchecked Transaction Fee**: This applies to smart signatures, but the contract here is a stateful application. The code doesn't handle transactions directly, so this isn't relevant here.
+
+2. **Unchecked Close Remainder To**: The contract authorizes payment transactions? No, it's handling Application Calls, not Payments. So this doesn't apply.
+
+3. **Unchecked Asset Close To**: Similarly, no asset transfers are involved here. The contract deals with voting, not asset transfers.
+
+4. **Unchecked Rekey To**: Again, since the contract is a stateful application and not a smart signature authorizing transactions, rekey checks aren't needed here.
+
+5. **Unchecked Payment Receiver**: The contract doesn't handle payments, so this isn't applicable.
+
+6. **Unchecked Asset Receiver**: Same as above, no asset transfers are part of the logic.
+
+7. **Arbitrary Update**: The contract allows UpdateApplication but checks if the sender is the creator. The line `Return(is_creator)` ensures only the creator can update. So this is handled correctly.
+
+8. **Arbitrary Delete**: The DeleteApplication is handled but returns `Return(Int(1))`, which means anyone can delete the app. That's a problem because the delete operation should be restricted to the creator. The code doesn't check the sender here, allowing unauthorized deletion.
+
+So the main issue is vulnerability 8. The contract allows anyone to delete the application without checking if they're the creator. This could lead to the app being deleted maliciously, disrupting the voting process.
+</think>
+
+### Vulnerability: Arbitrary Delete  
+### Explanation: The contract allows any user to delete the application by returning `Return(Int(1))` for `OnComplete.DeleteApplication` without verifying the sender's authorization. This could be exploited to terminate the contract prematurely, disrupting its intended functionality.  
+### Risk: High - Unauthorized deletion compromises contract integrity and availability.  
+
+<final>  
+The contract lacks authorization checks for the `DeleteApplication` operation, allowing any user to delete the application.  
+
+### Vulnerability: Arbitrary Delete  
+### Explanation: The `OnComplete.DeleteApplication` handler returns `Int(1)` unconditionally, permitting unauthorized deletion. Attackers could exploit this to terminate the contract, erasing global state and disrupting voting.  
+### Risk: High - Enables complete contract termination without creator approval.  
+</final>

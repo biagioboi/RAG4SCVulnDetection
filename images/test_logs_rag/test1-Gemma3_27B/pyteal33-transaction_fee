@@ -1,0 +1,103 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart signature (stateless)
+
+### Contract Purpose
+This contract is designed to enforce security constraints on a group of up to three transactions, primarily limiting transaction fees and preventing dangerous fields like rekeying or closing accounts/assets to non-zero addresses.
+
+### Functional Description
+1. The contract validates transactions based on their position (group index) within an atomic group.
+2. For transaction at index 0:
+   - Checks that the transaction fee is less than or equal to 1000 microAlgos.
+   - Verifies the close remainder to address is the zero address.
+   - Verifies the asset close to address is the zero address.
+   - Verifies the rekey to address is the zero address.
+   - Returns approval if all checks pass.
+3. For transaction at index 1:
+   - Verifies the close remainder to address is the zero address.
+   - Verifies the asset close to address is the zero address.
+   - Verifies the rekey to address is the zero address.
+   - Returns approval if all checks pass (no fee check).
+4. For transaction at index 2:
+   - Checks that the transaction fee is less than or equal to 1000 microAlgos.
+   - Verifies the close remainder to address is the zero address.
+   - Verifies the asset close to address is the zero address.
+   - Verifies the rekey to address is the zero address.
+   - Returns approval if all checks pass.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Transaction Fee** (0.9269)
+        - **Description:** The 'Unchecked Transaction Fee' vulnerability occurs when an Algorand smart contract does not properly validate the transaction fee. Attackers exploiting the contract by submitting transactions with abnormally high fees, potentially draining funds from other users.
+        - **Preconditions:** Applicable to smart signatures (delegated smart signatures or contract accounts) that authorize transactions where the sender is the victim of the excessive fee.
+        - **Security check to perform**: Ensure that **all critical transactions** (Asset Transfers, Payments, Application Calls) has cap fees.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    txn2 = Seq([
+        Assert(Txn.close_remainder_to() == Global.zero_address()),
+        Assert(Txn.asset_close_to() == Global.zero_address()),
+        Assert(Txn.rekey_to() == Global.zero_address()),
+        Return(Int(1))
+	# no check on the fee
+    ])
+          ```
+      
+    2. **Unchecked Asset Close To** (0.9216)
+        - **Description:** The 'Unchecked Asset Close To' vulnerability occurs when a smart signatures does not check that the `asset_close_to` field is either `Global.zero_address()` or an explicitly trusted address. Without this, an attacker may drain remaining asset holdings to their own account.
+        - **Preconditions:** Applies to smart signatures that authorize asset transfer transactions.
+        - **Security check to perform**: Validate that all authorized asset transfers ensure `asset_close_to` is either `Global.zero_address()` or a predefined safe address.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    txn2 = Seq([
+        Assert(And(
+            Txn.fee() <= fee_limit,
+            Txn.rekey_to() == Global.zero_address(),
+            Txn.close_remainder_to() == Global.zero_address(),
+            Txn.type_enum() == TxnType.AssetTransfer
+            # it does not restrict the `asset_close_to` field in a AssetTransfer transaction.
+        )),
+        Return(Int(1))
+    ])
+          ```
+      
+    3. **Unchecked Rekey to** (0.9105)
+        - **Description:** The 'Unchecked Rekey To' vulnerability is a critical security risk that occurs when smart contracts fail to validate the `rekey_to` field in transactions, potentially allowing attackers to steal complete control of accounts (including contract accounts).
+        - **Preconditions:** Applies exclusively to smart signatures. The transactions that can be rekeyed are asset transfer transactions or payment transactions. Crucially, **ApplicationCall transactions cannot be rekeyed** and are therefore exempt from this vulnerability.
+        - **Security check to perform**: Ensure that **all payment and asset transfer transactions** explicitly verify that their `rekey_to` field is set to `Global.zero_address()`
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    fifthTxn = And(Gtxn[4].type_enum() == TxnType.Payment,
+        Gtxn[4].receiver() == Addr("XSXGCVNGIWHXEV3VP6HMSAIJQATQHEDQKUSFWACOERFROBQXLZZAGKBAAI"),
+        Gtxn[4].amount() == Int(100000),
+        Gtxn[4].fee() <= Int(1000),
+        Gtxn[4].rekey_to() == Gtxn[0].sender()  # VulnerabilitÃ : rekey_to a un indirizzo arbitrario
+    )
+          ```
+      
+    4. **Unchecked Close Remainder To** (0.9086)
+    
+    5. **Unchecked Asset Receiver** (0.8916)
+    
+    6. **Arbitrary delete** (0.8877)
+    
+    7. **Unchecked Payment Receiver** (0.8829)
+    
+    8. **Arbitrary update** (0.8779)
+    
+
+--------------------------------------------------Audit--------------------------------------------------Thought: The contract is a signature program that validates three possible transaction groups. It enforces a fee limit and forces `close_remainder_to`, `asset_close_to`, and `rekey_to` to be the zero address for groups 0 and 2, but group 1 lacks the fee check. This matches the “Unchecked Transaction Fee” vulnerability. All other listed vulnerabilities are mitigated because the code explicitly checks `asset_close_to`, `rekey_to`, and `close_remainder_to`. No additional critical flaws are evident beyond the missing fee validation in the second branch.
+
+Plan: 
+1. Summarize contract purpose and flow. 
+2. Examine each branch for the presence of each RAG vulnerability. 
+3. Identify the missing fee check in the second branch as the only vulnerability. 
+4. Determine severity (High) and describe exploitation. 
+5. Provide mitigation: add fee check to the second branch and possibly enforce type checks.
+
+<final>
+### Vulnerability: Unchecked Transaction Fee
+### Explanation: The second transaction branch (group index 1) omits the `Assert(Txn.fee() <= fee_limit)` check, allowing an attacker to submit a transaction with an arbitrarily high fee. Since the signature program authorizes the transaction, the victim’s account could be forced to pay excessive fees, potentially leading to denial‑of‑service or draining of the victim’s funds through repeated high‑fee submissions.
+### Risk: High – an attacker can cause unbounded fee consumption, degrading service availability and possibly forcing victims to exhaust their funds.
+### Mitigation: 
+- Add `Assert(Txn.fee() <= fee_limit)` to the second branch’s assertion list to enforce fee limits uniformly across all groups.
+- Consider adding a type check (e.g., `Txn.type_enum() == TxnType.PaymentOrAssetTransfer`) before the assertions to ensure the transaction is of an expected type.
+</final>

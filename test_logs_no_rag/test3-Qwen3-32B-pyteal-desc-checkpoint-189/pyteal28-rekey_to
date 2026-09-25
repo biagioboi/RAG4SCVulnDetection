@@ -1,0 +1,36 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. The contract appears to be a logic signature that validates a transaction group of exactly 3 transactions. It's designed to handle an NFT order initialization with payment and asset transfer.
+
+     First, I'll examine each transaction check:
+     - Transaction 0: Application call to initialize an order with specific fee limits and argument checks
+     - Transaction 1: Payment transaction with receiver validation, amount check, and important security checks for close_remainder_to and fee
+     - Transaction 2: Asset transfer with receiver validation, amount check, and security checks for asset_close_to and fee
+
+     Now, let me look for potential vulnerabilities. The contract checks:
+     - `Gtxn[1].close_remainder_to() == Global.zero_address()` - Prevents account closure
+     - `Gtxn[1].fee() <= Int(100)` - Limits transaction fees
+     - `Gtxn[2].asset_close_to() == Global.zero_address()` - Prevents asset account closure
+     - `Gtxn[2].fee() <= Int(100)` - Limits asset transfer fees
+
+     I notice the contract doesn't check the `rekey_to` field for any transaction. In Algorand, the rekey_to field allows an account to change its authorization key. If this field is not explicitly set to the zero address, an attacker could include a rekey operation that would transfer control of the account to an address they control.
+
+     Looking at the current checks, there are no conditions verifying `Gtxn[0].rekey_to()`, `Gtxn[1].rekey_to()`, or `Gtxn[2].rekey_to()`. This means an attacker could include a rekey operation in any of these transactions, potentially compromising the account that signed this logic.
+
+     The vulnerability is particularly dangerous because:
+     1. It allows complete account takeover
+     2. It can be exploited in any of the three transactions
+     3. The attacker gains full control over the account's assets and signing authority
+
+     The contract should explicitly check that `rekey_to == Global.zero_address()` for all transactions to prevent this.
+
+</think>
+
+<final>
+
+
+     The contract contains a critical vulnerability where the rekey_to field is not validated, allowing an attacker to take control of the signing account.
+
+     ### Vulnerability: Unchecked Rekey to
+     ### Explanation: The contract does not validate the rekey_to field for any transaction, allowing an attacker to include a rekey operation that transfers account control to an address they control, resulting in complete account takeover.
+     ### Risk: Critical - Allows complete loss of account funds and control
+</final>

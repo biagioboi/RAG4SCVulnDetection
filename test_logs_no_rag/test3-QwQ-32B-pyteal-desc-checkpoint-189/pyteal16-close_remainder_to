@@ -1,0 +1,48 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a stateless smart signature (LogicSig) for a periodic payment escrow account. The contract validates payment transactions with specific timing and conditions.
+
+     First, looking at the overall structure:
+     - The contract uses a combination of And/Or operations to define validation rules
+     - It's designed to handle periodic payments with specific timing constraints
+     - There are two main execution paths: regular transfers and account closure
+
+     Breaking down the validation logic:
+     1. `periodic_pay_core` - Contains basic transaction validation:
+        - Must be a Payment transaction
+        - Fee capped at 1000 microAlgos
+        - First valid block must be divisible by 50 (periodic execution)
+        - Last valid within 5000 blocks of first valid
+        - Specific lease value required
+        - **CRITICAL OBSERVATION**: It validates `Txn.rekey_to() == Global.zero_address()` - this is good!
+
+     2. `periodic_pay_transfer` - Validates regular payment conditions:
+        - Specific receiver address hardcoded
+        - Fixed amount of 2000 microAlgos
+
+     3. `periodic_pay_close` - Validates account closure conditions:
+        - Receiver is zero address (closure)
+        - First valid block must be exactly 30000
+        - Amount is 0
+
+     Now, examining the security aspects based on the provided checklist:
+
+     - **Unchecked Transaction Fee**: The fee is properly capped at 1000 microAlgos - this is safe.
+     - **Unchecked Close Remainder To**: The contract validates `Txn.receiver()` but does NOT check `Txn.close_remainder_to()` in any branch. This is a major oversight.
+     - **Unchecked Asset Close To**: Not applicable since this is a payment contract, not asset transfer.
+     - **Unchecked Rekey to**: Properly validated in `periodic_pay_core`
+     - **Unchecked Payment Receiver**: Receiver is properly validated in both transfer and close paths
+     - **Arbitrary update/delete**: Not applicable to stateless contracts
+
+     The critical issue is that while the contract validates the `receiver` field, it completely ignores the `close_remainder_to` field. In Algorand, if `close_remainder_to` is set, the entire account balance (minus the transaction amount) is sent to this address when the transaction is executed. Since this field is never checked, an attacker could specify any address as the close remainder recipient, potentially draining the entire escrow account balance.
+
+</think>
+
+<final>
+
+
+The contract implements a periodic payment escrow but fails to validate the close_remainder_to field, allowing potential account drainage.
+
+### Vulnerability: Unchecked Close Remainder To
+### Explanation: The contract does not validate the close_remainder_to field in payment transactions, allowing any address to be specified which could drain the entire account balance when the transaction executes.
+### Risk: High - Could result in complete loss of funds from the escrow account
+</final>

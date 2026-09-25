@@ -1,0 +1,110 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract implements a voting application where users can register during a registration period and cast a single vote for a specific choice during a voting period. The contract tracks vote tallies globally and ensures users cannot vote multiple times.
+
+### Functional Description
+1. **Creation handler**: Executes when the application ID is zero. It stores the creator's address, expects four application arguments representing registration start, registration end, voting start, and voting end rounds, and saves these values to global state.
+
+2. **DeleteApplication handler**: Allows deletion only if the transaction sender is the creator (checked via the global "Creator" value).
+
+3. **UpdateApplication handler**: Permits updates only if the transaction sender is the creator.
+
+4. **CloseOut handler**: When a user closes out their local state, if the current round is within the voting period and the user has previously voted, decrements the global tally for the user's vote choice.
+
+5. **OptIn handler**: Allows opt-in only if the current round is within the registration period (between RegBegin and RegEnd).
+
+6. **Vote action**: Triggered when the first application argument is "vote". It verifies the current round is within the voting period, checks that the user has not voted before, increments the global tally for the choice specified in the second application argument, and records the vote in the user's local state.
+
+7. **Clear state program**: Executes when a user clears their local state. It performs the same logic as the CloseOut handler: if within voting period and the user has voted, decrements the corresponding global vote tally.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Arbitrary delete** (0.9330)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call
+        - **Security check to perform**: Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_delete = Seq(
+        [
+            # Nessun controllo sull'identitÃ  del chiamante
+            # Chiunque puÃ² invocare l'eliminazione dell'applicazione
+            Return(Int(1))  # Sempre restituisce successo
+        ]
+    )
+
+[Txn.on_completion() == OnComplete.DeleteApplication, on_delete]
+          ```
+      
+    2. **Unchecked Payment Receiver** (0.8897)
+        - **Description:** The Unchecked Payment Receiver vulnerability occurs when a smart contract fails to properly validate the recipient address (Receiver) in payment transactions (TxnType.Payment). This allows attackers to redirect funds to unauthorized addresses.
+        - **Preconditions:** Applies to all **and only `TxnType.Payment` transactions** like: Escrow contracts releasing funds, DeFi protocols processing withdrawals, Crowdfunding contracts issuing refunds; where the receiver must be authorized.
+        - **Security check to perform**: Ensure payments only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    handle_payment = Seq([
+        Assert(Global.group_size() >= Int(2)),
+        Assert(Txn.type_enum() == TxnType.Payment),
+        Assert(Txn.amount() > Int(0)),
+        App.globalPut(Bytes("LastReceiver"), Txn.accounts[1]),
+        App.globalPut(Bytes("LastAmount"), Txn.amount()),
+        Approve()
+	# The contract records Txn.accounts[1] as the payment receiver without verifying or restricting which account can be placed in this field. An attacker can supply any arbitrary account in the transaction's account list
+
+    ])
+          ```
+      
+    3. **Unchecked Asset Receiver** (0.8896)
+        - **Description:** The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.
+        - **Preconditions:** Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.
+        - **Security check to perform**: Ensure asset transfer only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_exchange_1 = Seq([
+        Assert(
+            And(
+                Txn.group_index() == Int(1),
+                Gtxn[0].type_enum() == TxnType.AssetTransfer,
+                Gtxn[1].type_enum() == TxnType.ApplicationCall,
+                Gtxn[0].xfer_asset() == Gtxn[1].assets[0],
+                Gtxn[0].asset_amount() >= min_amount,
+                Global.round() >= App.globalGet(start_time_key) + delay
+            )
+        ),
+	# VULNERABILITÃ€: Unchecked_Asset_Receiver
+        # Il receiver dell'asset transfer (Txn.accounts[1]) non viene verificato
+        # potrebbe essere qualsiasi account, anche non autorizzato
+        App.globalPut(Concat(asset_prefix, Txn.accounts[1]), Gtxn[0].asset_amount()),
+        Approve()
+    ])
+          ```
+      
+    4. **Arbitrary update** (0.8891)
+    
+    5. **Unchecked Close Remainder To** (0.8768)
+    
+    6. **Unchecked Transaction Fee** (0.8669)
+    
+    7. **Unchecked Rekey to** (0.8659)
+    
+    8. **Unchecked Asset Close To** (0.8640)
+    
+
+--------------------------------------------------Audit--------------------------------------------------```
+Thought: The contract is a simple voting application. It defines creation, registration, voting, closeout, and handling of DeleteApplication and UpdateApplication calls. 
+
+- DeleteApplication is handled with a plain `Return(Int(1))` and no access check, so any account can trigger deletion, causing permanent loss of state and any funds – matching the “Arbitrary delete” vulnerability (priority 0.9330). 
+- UpdateApplication is gated by `is_creator`, so it is not vulnerable to arbitrary update. 
+- No payment, asset transfer, or close‑remainder logic is present, so the other listed vulnerabilities do not apply. 
+- The only other potential issue is that the vote choice (`Txn.application_args[1]`) is used directly as a global state key without validation, which could allow overwriting existing global keys, but this does not directly enable the high‑severity deletions listed. 
+- Therefore the primary security issue is the unrestricted DeleteApplication call.
+```
+
+<final>
+### Vulnerability: Arbitrary delete
+### Explanation: The contract processes `DeleteApplication` calls with a simple `Return(Int(1))` and does not verify that the caller is the creator or an authorized admin. Any account can invoke `DeleteApplication`, causing the application to be deleted and its entire state (including any stored assets) to be lost permanently.
+### Risk: Critical - Complete loss of contract state and any held assets, leading to irreversible fund drain.
+### Mitigation: Add an access control check before allowing deletion, e.g., `Assert(Txn.sender() == App.globalGet("Creator"))` (or another admin address) before returning success. This restricts deletion to authorized entities only.
+</final>

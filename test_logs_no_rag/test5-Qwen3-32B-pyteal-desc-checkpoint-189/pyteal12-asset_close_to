@@ -1,0 +1,55 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This is a stateless smart signature that validates a transaction group of 3 transactions. The contract appears to be designed for asset transfers with specific conditions.
+
+     First, I'll examine the overall structure:
+     - Group size check: Must be exactly 3 transactions
+     - Block time check: Must be between block 6000 and 12000
+     - Transaction 0: Asset transfer of asset_id_A to receiver_A with specific amount
+     - Transaction 1: Asset transfer of asset_id_B to receiver_B with conditional amount
+     - Transaction 2: Payment transaction to a specific receiver
+
+     Now let me check each transaction for security issues:
+
+     **Transaction 0 (AssetTransfer):**
+     - Fee checked ✓
+     - Asset ID checked ✓
+     - Receiver checked ✓
+     - Amount checked ✓
+     - Note checked ✓
+     - asset_close_to checked ✓ (set to zero_address)
+     - rekey_to checked ✓ (set to zero_address)
+     - close_remainder_to: Not applicable (asset transfer)
+
+     **Transaction 1 (AssetTransfer):**
+     - Fee checked ✓
+     - Asset ID checked ✓
+     - Receiver checked ✓
+     - Amount checked ✓ (with conditional logic)
+     - rekey_to checked ✓ (set to zero_address)
+     - asset_close_to: ❌ NOT CHECKED! This is concerning - the contract validates asset_close_to for transaction 0 but completely omits it for transaction 1.
+
+     **Transaction 2 (Payment):**
+     - Fee checked ✓
+     - Amount checked ✓
+     - Receiver checked ✓
+     - close_remainder_to checked ✓ (set to zero_address)
+     - rekey_to checked ✓ (set to zero_address)
+     - asset_close_to: Not applicable (payment transaction)
+
+     The critical issue is in transaction 1. While transaction 0 properly validates asset_close_to, transaction 1 completely omits this check. This means an attacker could specify any address in the asset_close_to field for transaction 1, potentially draining all remaining assets of that type from the account.
+
+     The contract logic is inconsistent - it validates some security-critical fields for some transactions but not others. This pattern suggests the developer may have overlooked important security checks for transaction 1.
+
+     The vulnerability allows an attacker to specify any address as the asset_close_to recipient for transaction 1, which could result in loss of all remaining assets of asset_id_B from the account.
+
+    </think>
+
+     <final>
+
+
+     The contract contains a critical security vulnerability where the asset_close_to field is not validated for one of the asset transfer transactions, allowing potential asset drainage.
+
+     ### Vulnerability: Unchecked Asset Close To
+     ### Explanation: The contract fails to validate the asset_close_to field for transaction 1 (Gtxn[1]), allowing any address to be specified. This could enable an attacker to drain all remaining assets of asset_id_B from the account by specifying their own address in the asset_close_to field.
+     ### Risk: Critical - Could result in complete loss of assets from the account
+     </final>

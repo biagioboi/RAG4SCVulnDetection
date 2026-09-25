@@ -1,0 +1,44 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a stateless smart signature (delegated approval) contract that handles periodic payments. The contract validates payment transactions with specific constraints.
+
+     First, I'll examine the overall structure. The contract uses a core validation function `periodic_pay_core` that checks basic transaction properties:
+     - Transaction type is Payment
+     - Fee is capped at 1000 microAlgos
+     - First valid block is divisible by 50 (periodic execution)
+     - Last valid block is within 5000 blocks of first valid
+     - Lease is set to a specific value
+     - Rekey_to is explicitly checked against zero_address
+
+     The contract then has two specific payment paths:
+     1. `periodic_pay_transfer`: Regular payment of 2000 microAlgos to a specific receiver address
+     2. `periodic_pay_close`: Account closure transaction that sends 0 microAlgos to zero_address at block 30000
+
+     The main validation combines the core checks with either the transfer or close path using an OR condition.
+
+     Now, let me check for the vulnerabilities mentioned:
+
+     **Unchecked Transaction Fee**: The contract explicitly checks `Txn.fee() <= Int(1000)` - this is properly capped.
+
+     **Unchecked Close Remainder To**: This is the critical finding. The contract validates `Txn.receiver()` but does NOT check the `close_remainder_to` field. In Algorand, when a payment transaction closes an account, the `close_remainder_to` field specifies where the remaining balance goes. The contract only validates `Txn.receiver()` in the transfer path, but an attacker could set `close_remainder_to` to their own address while still passing the receiver check.
+
+     **Unchecked Asset Close To**: Not applicable - this is a payment contract, not asset transfer.
+
+     **Unchecked Rekey to**: Properly checked - `Txn.rekey_to() == Global.zero_address()`
+
+     **Unchecked Payment Receiver**: The transfer path properly validates `Txn.receiver()` against a specific address.
+
+     **Arbitrary update/delete**: Not applicable - this is a stateless contract (smart signature), not an application.
+
+     The vulnerability is clear: while the contract validates the receiver address, it doesn't validate the close_remainder_to field. An attacker could craft a transaction that appears to be a regular payment to the intended receiver but also sets close_remainder_to to their own address, allowing them to drain the entire account balance after the payment.
+
+</think>
+
+<final>
+
+
+The contract implements periodic payments but fails to validate the close_remainder_to field, allowing account drainage.
+
+### Vulnerability: Unchecked Close Remainder To
+### Explanation: The contract validates the receiver address but does not check the close_remainder_to field, allowing an attacker to specify their own address and drain the entire account balance after the payment transaction.
+### Risk: Critical - Complete loss of account funds
+</final>

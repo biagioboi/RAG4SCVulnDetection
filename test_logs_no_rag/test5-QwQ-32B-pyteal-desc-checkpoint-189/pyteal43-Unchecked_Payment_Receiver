@@ -1,0 +1,37 @@
+
+--------------------------------------------------Audit-------------------------------------------------- [START_OF_REASONS]
+
+Let me analyze this PyTeal code systematically. This appears to be a pension system application where a company can contribute funds and set pension amounts, which employees can then withdraw.
+
+First, looking at the overall structure:
+- It's a stateful application with global state for company, fund, and pension amounts
+- Has initialization, contribution, pension setting, deletion, and withdrawal operations
+- The withdrawal logic is particularly interesting as it uses inner transactions
+
+Now examining the security checklist vulnerabilities:
+
+1. **Unchecked Transaction Fee**: The contract handles inner transactions in the withdraw function. I need to check if it validates fees for these inner payments. The code uses `InnerTxnBuilder.SetField(TxnField.amount, ...)` but doesn't set `TxnField.fee`. This is problematic because inner transactions can have fees set by the caller, potentially draining funds.
+
+2. **Unchecked Close Remainder To**: The withdrawal function uses `Gtxn[1].receiver()` as the payment receiver. However, it doesn't check `Txn.close_remainder_to()` for the inner payment transaction. This could allow draining the entire account balance.
+
+3. **Unchecked Rekey To**: Similarly, the inner payment transaction doesn't validate `Txn.rekey_to()`, which could allow an attacker to rekey the account and gain control.
+
+4. **Unchecked Payment Receiver**: The withdrawal logic uses `Gtxn[1].receiver()` directly without validating that this receiver is authorized or intended. An attacker could specify any address as the receiver.
+
+5. **Arbitrary Update**: The `UpdateApplication` handler calls `set_pension` which only checks if the sender is the company. This allows the company to update the pension amount at any time, which might be intended but could be considered arbitrary.
+
+6. **Arbitrary Delete**: The `DeleteApplication` handler properly restricts deletion to the company only.
+
+The most critical issues are in the withdrawal function where inner transactions are used without proper security checks. The combination of unchecked fee, close remainder to, rekey to, and arbitrary receiver creates significant risks.
+
+     [END_OF_REASONS]
+
+<final>
+
+
+The pension system contract contains multiple security vulnerabilities in its withdrawal logic.
+
+### Vulnerability: Unchecked Transaction Fee, Unchecked Close Remainder To, Unchecked Rekey To, Unchecked Payment Receiver
+### Explanation: The withdrawal function uses inner transactions without validating critical security fields. It doesn't check transaction fees, allowing excessive fee draining; doesn't validate close_remainder_to, enabling account drainage; doesn't check rekey_to, allowing account takeover; and uses an arbitrary receiver from group transactions without validation.
+### Risk: Critical - Multiple vulnerabilities combine to allow complete drainage of pension funds and potential account takeover
+</final>

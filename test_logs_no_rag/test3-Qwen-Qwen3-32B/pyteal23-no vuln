@@ -1,0 +1,63 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start analyzing this PyTeal code. The contract is called "split" and seems to handle payment transactions. The main logic is in the split_program variable, which combines split_core, split_transfer, and split_close conditions based on the group size.
+
+First, looking at split_core: it checks that the transaction is a payment, the fee is under tmpl_fee (1000), and rekey_to is zero address. That covers some checks for unchecked transaction fee (vulnerability 1) and unchecked rekey to (vulnerability 4). The fee check is present, so maybe that's okay. The rekey_to is checked to be zero, which addresses vulnerability 4 for payment transactions.
+
+Next, split_transfer applies when the group size is 2. It checks that both transactions in the group have the same sender, close_remainder_to is zero for the first transaction, and the receivers are tmpl_rcv1 and tmpl_rcv2. Also, the amounts must satisfy a ratio (ratn/ratd) and the first transaction's amount must be at least tmpl_min_pay. However, there's no check on the receiver addresses beyond being tmpl_rcv1 and tmpl_rcv2. Wait, vulnerability 5 is about restricting receivers to trusted addresses. Here, the receivers are fixed to tmpl_rcv1 and tmpl_rcv2, which are presumably trusted since they're set as template variables. So maybe vulnerability 5 is addressed here.
+
+Then, split_close handles the case when group size isn't 2. It checks that close_remainder_to is tmpl_own, receiver is zero address, amount is zero, and first_valid is after tmpl_timeout. This covers closing the remainder to a specific address, which might address vulnerability 2 if tmpl_own is trusted. However, the check for close_remainder_to is only when group size isn't 2. But vulnerability 2 applies to all payment transactions authorized by the contract. Wait, in split_core, there's a check for close_remainder_to being zero. But split_core is part of split_program, which is split_core AND (split_transfer OR split_close). Wait, split_core includes Txn.close_remainder_to() == zero_address()? No, looking back: split_core has Txn.rekey_to() == zero_address(), but not close_remainder_to. Wait, split_core is And(Txn.type_enum() == Payment, Txn.fee() < tmpl_fee, Txn.rekey_to() == zero). So the close_remainder_to isn't checked in split_core. However, split_transfer includes Txn.close_remainder_to() == zero_address()? Wait, split_transfer is part of the group size 2 case. Let me check: split_transfer has Gtxn[0].close_remainder_to()? Wait, no. Wait, split_transfer is And(Gtxn[0].sender() == Gtxn[1].sender(), Txn.close_remainder_to() == zero_address(), Gtxn[0].receiver() == tmpl_rcv1, ...). Wait, Txn here refers to the first transaction in the group? Or is Txn referring to the current transaction? Wait, in PyTeal, when using Gtxn[i], it refers to the ith transaction in the group. But in split_core, Txn is the first transaction (since it's a single transaction or part of a group). Wait, maybe I'm getting confused here. Let me clarify.
+
+The split_core is part of the overall condition. The split_program is split_core AND (if group size is 2, split_transfer else split_close). So split_core applies to all transactions authorized by this contract. Split_core checks that the transaction is a payment, fee is under tmpl_fee, and rekey_to is zero. So that covers vulnerability 1 (fee check) and vulnerability 4 (rekey_to check) for payment transactions. 
+
+Now, vulnerability 2 is about close_remainder_to in payment transactions. In split_core, there's no check on Txn.close_remainder_to(). However, in split_transfer, there's a check that Txn.close_remainder_to() == zero_address(). Wait, but split_transfer is part of the group size 2 case. Wait, split_transfer includes Txn.close_remainder_to() == zero_address()? Wait, looking back: split_transfer is And(..., Txn.close_remainder_to() == Global.zero_address(), ...). Wait, no. Wait, split_transfer is part of the group size 2 case. Wait, split_transfer is And(Gtxn[0].sender() == Gtxn[1].sender(), Txn.close_remainder_to() == Global.zero_address(), ...). Wait, but Txn here refers to the first transaction in the group? Or is it referring to the current transaction? Wait, maybe the code is using Txn in split_core and split_transfer as the first transaction. Wait, perhaps the code is structured such that when group size is 2, it's checking the two transactions in the group. But in split_core, the Txn refers to the first transaction (since it's a single transaction or part of a group). Wait, maybe the code is using Txn in split_core as the first transaction, and in split_transfer, it's checking both transactions in the group. Hmm, perhaps I need to look at the code again.
+
+Wait, split_core is part of the overall condition. So split_core applies to the transaction authorized by the contract. Then, split_transfer is part of the condition when group size is 2. So split_transfer includes checks on both transactions in the group (Gtxn[0] and Gtxn[1]). However, in split_transfer, there's a check on Txn.close_remainder_to() == zero_address(). Wait, but Txn here refers to the first transaction in the group? Or is it referring to the current transaction? Wait, maybe the code is using Txn in split_core and split_transfer as the first transaction. Wait, perhaps the code is structured such that when group size is 2, the contract is authorizing two transactions. But split_core is part of the condition for each transaction. Wait, maybe I'm misunderstanding the code structure.
+
+Alternatively, perhaps the split_core is checking the first transaction (Txn), and split_transfer is checking the two transactions in the group. So in split_transfer, the code checks that both transactions have the same sender, and that the first transaction's close_remainder_to is zero. But the second transaction's close_remainder_to isn't checked here. Wait, but split_transfer includes Txn.close_remainder_to() == zero_address(). Wait, Txn here refers to the first transaction (since split_core is part of the same condition). Hmm, perhaps the code is using Txn in split_transfer as the first transaction. Wait, maybe the code is structured such that when group size is 2, the contract is authorizing two transactions, and split_transfer checks both of them. But in split_transfer, the code checks Txn.close_remainder_to() == zero_address(), which would be the first transaction's close_remainder_to. However, the second transaction's close_remainder_to isn't checked here. So if the contract authorizes two transactions, but only checks the first one's close_remainder_to, then the second transaction's close_remainder_to could be arbitrary. That would be a problem for vulnerability 2.
+
+Wait, vulnerability 2 applies to all authorized payment transactions. So if the contract authorizes two transactions in a group, both need to have their close_remainder_to checked. However, in split_transfer, the code checks Txn.close_remainder_to() == zero_address(), which is the first transaction's close_remainder_to. But the second transaction's close_remainder_to isn't checked. So that's a problem. Because if an attacker can set the close_remainder_to of the second transaction to a malicious address, they could steal funds. So this would be a vulnerability.
+
+But wait, looking at the code again: split_transfer includes Txn.close_remainder_to() == zero_address(). Wait, but Txn refers to the first transaction (since split_core is part of the same condition). Wait, perhaps the code is using Txn in split_transfer as the first transaction. But in split_transfer, the code is part of the group size 2 case. So maybe the code is checking the first transaction's close_remainder_to, but not the second's. That's a problem because the second transaction's close_remainder_to isn't checked. So vulnerability 2 is present here.
+
+Additionally, in split_close, when group size isn't 2, the code checks that close_remainder_to is tmpl_own. So that's okay for that case. But when group size is 2, the code checks only the first transaction's close_remainder_to. The second transaction's close_remainder_to isn't checked. So that's a vulnerability.
+
+Another point: vulnerability 5 is about restricting payment receivers to trusted addresses. In split_transfer, the receivers are set to tmpl_rcv1 and tmpl_rcv2, which are trusted. So that's okay. So vulnerability 5 is addressed here.
+
+Looking at vulnerability 3 (asset close to): the contract doesn't handle asset transfers, so this doesn't apply.
+
+Vulnerability 6 (asset receiver): same as above, no asset transfers.
+
+Vulnerability 7 and 8 (update/delete application): the contract is a stateless smart contract (logic signature), so these don't apply.
+
+So the main issues are with vulnerability 2 (unchecked close_remainder_to) in the second transaction when group size is 2. Also, vulnerability 4 is addressed because rekey_to is checked to be zero. Vulnerability 1 is addressed with the fee check.
+
+Wait, but in split_core, the fee is checked to be less than tmpl_fee (1000). But vulnerability 1 requires that critical transactions explicitly enforce a maximum fee. Here, the code does check Txn.fee() < tmpl_fee. So that's okay.
+
+So the main vulnerability is vulnerability 2: in the group size 2 case, the second transaction's close_remainder_to isn't checked. So an attacker could set the close_remainder_to of the second transaction to a malicious address, leading to funds being sent there when the account is closed.
+</think>
+
+The contract is a stateless smart contract (logic signature) designed to authorize payment transactions under specific conditions. It enforces checks on transaction fees, rekey_to fields, and receiver addresses depending on whether the transaction is part of a group of two or a standalone transaction. 
+
+### Key Analysis Points:
+1. **Unchecked Close Remainder To (Vulnerability 2):**
+   - In the `split_transfer` block (group size 2), the contract checks `Txn.close_remainder_to() == Global.zero_address()` for the first transaction (`Gtxn[0]`) but does **not** validate the `close_remainder_to` field for the second transaction (`Gtxn[1]`). 
+   - This omission allows an attacker to set `close_remainder_to` on the second transaction to a malicious address, enabling unauthorized fund theft when the account is closed. 
+   - Evidence: `split_transfer` only checks `Txn.close_remainder_to()` (first transaction) but ignores `Gtxn[1].close_remainder_to()`.
+
+2. **Unchecked Transaction Fee (Vulnerability 1):**
+   - The contract explicitly checks `Txn.fee() < tmpl_fee` in `split_core`, satisfying the requirement to enforce a maximum fee for critical transactions. No issue here.
+
+3. **Unchecked Rekey To (Vulnerability 4):**
+   - The contract explicitly checks `Txn.rekey_to() == Global.zero_address()` in `split_core`, ensuring rekeying is disallowed. No issue here.
+
+4. **Unchecked Payment Receiver (Vulnerability 5):**
+   - The contract restricts receivers to `tmpl_rcv1` and `tmpl_rcv2` in `split_transfer`, ensuring only trusted addresses can receive funds. No issue here.
+
+---
+
+<final>
+### Vulnerability: Unchecked Close Remainder To  
+### Explanation: The contract authorizes two-payment groups but fails to validate the `close_remainder_to` field of the second transaction (`Gtxn[1]`). An attacker could set this field to a malicious address, enabling unauthorized fund theft when the account is closed.  
+### Risk: High – Allows unauthorized fund theft via account closure.  
+</final>

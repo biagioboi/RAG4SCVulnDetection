@@ -1,0 +1,32 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. The code defines a PyTeal smart contract called periodic_payment. It seems to authorize Payment transactions under certain conditions. The main logic is in the periodic_pay_escrow variable, which combines several conditions using And and Or.
+
+First, periodic_pay_core checks that the transaction is a Payment, has a fee ≤ 1000, first_valid is a multiple of 50, last_valid is within 5000 of first_valid, has a specific lease, and rekey_to is zero address. Then periodic_pay_transfer requires the receiver to be a specific address and amount exactly 2000. periodic_pay_close requires receiver to be zero address, first_valid exactly 30000, and amount zero. The escrow condition combines core with either transfer or close.
+
+Now, let's go through each vulnerability checklist item.
+
+1. **Unchecked Transaction Fee**: The contract does check Txn.fee() <= Int(1000). So this is covered. Since it's a smart signature (as it's a stateless contract), this check is present. So no issue here.
+
+2. **Unchecked Close Remainder To**: The contract is a Payment transaction authorizer. It checks Txn.close_remainder_to() implicitly? Wait, looking at the code, periodic_pay_core doesn't mention close_remainder_to. The periodic_pay_close checks receiver is zero address and amount zero, but close_remainder_to isn't checked. Wait, the periodic_pay_close condition includes receiver being zero address and amount zero. But in Payment transactions, close_remainder_to is different from receiver. So if a transaction has a close_remainder_to field set, the contract doesn't check it. Since the contract is a stateless smart contract authorizing payments, and doesn't validate close_remainder_to, this is a problem. The vulnerability checklist item 2 says to ensure that close_remainder_to is zero or trusted. Here, the code doesn't check it. So this is a vulnerability.
+
+3. **Unchecked Asset Close To**: The contract handles Payment transactions, not AssetTransfer. So this doesn't apply.
+
+4. **Unchecked Rekey To**: The contract checks Txn.rekey_to() == zero address in periodic_pay_core. So this is covered. No issue here.
+
+5. **Unchecked Payment Receiver**: The periodic_pay_transfer requires receiver to be a specific address. However, the Or condition includes periodic_pay_transfer OR periodic_pay_close. The periodic_pay_close requires receiver to be zero address. So all valid transactions must have receiver either the specific address or zero. So this is checked. No issue here.
+
+6. **Unchecked Asset Receiver**: Not applicable since it's Payment transactions.
+
+7. **Arbitrary Update**: The contract is stateless (a signature contract), so OnComplete isn't relevant here. Not applicable.
+
+8. **Arbitrary Delete**: Same as above, not applicable.
+
+So the main vulnerability is Unchecked Close Remainder To. The contract doesn't check if the close_remainder_to field is set. Even though the periodic_pay_close checks receiver is zero address, that's different from close_remainder_to. An attacker could set close_remainder_to to their address, draining the remaining funds when the transaction closes the account. Since the contract doesn't check this field, it's a vulnerability under checklist item 2.
+</think>
+
+<final>
+### Vulnerability: Unchecked Close Remainder To  
+### Explanation: The contract authorizes Payment transactions but does not explicitly validate the `close_remainder_to` field. While it checks the receiver address in `periodic_pay_transfer` and `periodic_pay_close`, the `close_remainder_to` field remains unchecked. An attacker could exploit this by setting `close_remainder_to` to their address, draining remaining funds from the sender's account.  
+### Risk: High — Unauthorized account closure could lead to fund loss for users authorized by the contract.  
+</final>

@@ -1,0 +1,30 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. The contract appears to be a stateful application that handles payments. It stores a creator address during creation and implements basic access controls for update/delete operations.
+
+     Looking at the main components:
+     - Creation: Stores the creator's address
+     - OptIn/CloseOut: Always approves
+     - Update/Delete: Properly restricted to creator only
+     - NoOp: Handles payment transactions
+
+     Now examining the payment handling logic in `handle_payment`:
+     - Requires group size ≥ 2
+     - Verifies transaction is Payment type
+     - Checks amount > 0
+     - Stores receiver (Txn.accounts[1]) and amount in global state
+
+     The critical issue I'm noticing is that the payment transaction validation doesn't check the `close_remainder_to` field. In Algorand, payment transactions can have a `close_remainder_to` address that closes the sender's account and sends remaining funds to that address. The contract stores the receiver from `Txn.accounts[1]` but doesn't validate that the payment transaction isn't also closing the account to an unauthorized address.
+
+     This means an attacker could craft a payment transaction that sends funds to the intended receiver but also closes the sender's account to an address controlled by the attacker, potentially draining all remaining ALGOs from the account after the payment.
+
+</think>
+
+<final>
+
+
+The contract implements basic payment handling but fails to validate critical security fields in payment transactions, allowing account closure attacks.
+
+### Vulnerability: Unchecked Close Remainder To
+### Explanation: The payment handling logic does not validate the `close_remainder_to` field, allowing attackers to craft payment transactions that close the sender's account to an unauthorized address while still appearing to make a legitimate payment.
+### Risk: High - Could result in complete drainage of account funds beyond the intended payment amount
+</final>

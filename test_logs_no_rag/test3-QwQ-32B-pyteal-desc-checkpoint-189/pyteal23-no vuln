@@ -1,0 +1,50 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal contract systematically. This appears to be a payment splitting contract that handles two scenarios: a 2-transaction payment split between two receivers, and a single transaction account closure.
+
+     First, looking at the overall structure:
+     - The contract uses template parameters for configuration
+     - It has a main `split_program` that branches based on group size
+     - For group_size=2 (split_transfer), it handles payment distribution
+     - For group_size=1 (split_close), it handles account closure
+
+     Now examining the security checks:
+
+     In `split_core`:
+     - Checks transaction type is Payment
+     - Validates fee is below template limit (1000 microAlgos)
+     - **CRITICAL FINDING**: Explicitly checks `Txn.rekey_to() == Global.zero_address()` - this is good!
+
+     In `split_transfer` (for 2-transaction groups):
+     - Ensures both transactions have same sender
+     - **CRITICAL FINDING**: Explicitly checks `Txn.close_remainder_to() == Global.zero_address()` - this is good!
+     - Validates receivers against template addresses
+     - Performs ratio calculations and minimum payment check
+
+     In `split_close` (for single transaction):
+     - Sets `close_remainder_to` to template owner (tmpl_own)
+     - Sets receiver to zero address and amount to 0
+     - Checks timeout condition
+
+     Let me verify all the security concerns mentioned:
+
+     - **Unchecked Transaction Fee**: The fee is properly checked in `split_core`
+     - **Unchecked Close Remainder To**: Explicitly checked in both scenarios
+     - **Unchecked Asset Close To**: Not applicable - this is a payment contract
+     - **Unchecked Rekey to**: Explicitly checked in `split_core`
+     - **Unchecked Payment Receiver**: Receivers are validated against template addresses
+     - **Arbitrary update**: Not applicable - this is a stateless contract (Mode.Signature)
+     - **Arbitrary delete**: Not applicable - same reason
+
+     The contract appears to have proper security controls for all mentioned vulnerabilities. The rekey check is present in the core logic, and close_remainder_to is explicitly validated in both transfer and close scenarios.
+
+</think>
+
+<final>
+
+
+The contract implements a secure payment splitting mechanism with proper security controls for all identified vulnerabilities.
+
+### Vulnerability: Not Vulnerable
+### Explanation: The contract properly validates all critical security fields including rekey_to and close_remainder_to in both payment transfer and account closure scenarios.
+### Risk: None - All security controls are properly implemented
+</final>

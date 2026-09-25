@@ -1,0 +1,30 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal code systematically. The contract appears to be a stateless logic signature (smart signature) that validates a single asset transfer transaction. Its purpose is to authorize a specific ASA transfer with strict parameters.
+
+     First, looking at the overall structure: it's a single transaction validation function that checks multiple properties of the transaction. The contract uses `Mode.Signature`, confirming it's a stateless contract.
+
+     Now examining each validation check:
+     - `group_check = Global.group_size() == Int(1)`: Ensures only one transaction in the group
+     - `Gtxn[0].type_enum() == TxnType.AssetTransfer`: Verifies it's an asset transfer
+     - `Gtxn[0].fee() <= maximum_amount`: Checks fee is below 200,000 microAlgos
+     - `Gtxn[0].xfer_asset() == expiration_time`: Validates the asset ID (using expiration_time as asset ID)
+     - `Gtxn[0].asset_receiver() == Addr("BN2R5VU5TF2U7JM4DDYN4UGJBPGO7CMCKAPCRSPAD6KXBJLWP53JCDFLG4")`: Restricts receiver to specific address
+     - `Gtxn[0].asset_amount() == expiration_time`: Sets amount to 90000 units
+     - `Gtxn[0].note() == Bytes("Transfer1")`: Requires specific note
+     - `Gtxn[0].rekey_to() == Global.zero_address()`: Prevents rekeying
+
+     The code performs explicit checks for rekey_to, which is good. However, I notice it doesn't check for `asset_close_to`. In Algorand, asset transfers can have a close-to address that drains all remaining assets of that type from the sender's account. The contract validates the receiver but doesn't ensure `asset_close_to` is zero.
+
+     This is problematic because an attacker could specify their own address as the close-to address, allowing them to drain all remaining assets of that type from the sender's account after the intended transfer. The contract only validates the primary receiver but doesn't prevent the close-to operation.
+
+</think>
+
+<final>
+
+
+The contract contains a critical vulnerability where asset close-to operations are not restricted.
+
+### Vulnerability: Unchecked Asset Close To
+### Explanation: The contract fails to validate that `Txn.asset_close_to()` is set to the zero address, allowing an attacker to specify their own address and drain all remaining assets of that type from the sender's account after the intended transfer.
+### Risk: Critical - Complete drainage of all remaining assets of the specified type from the sender's account
+</final>

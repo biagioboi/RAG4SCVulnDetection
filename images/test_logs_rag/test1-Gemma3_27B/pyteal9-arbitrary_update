@@ -1,0 +1,100 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart contract / stateful application
+
+### Contract Purpose
+This contract is a simple stateful application that stores a single global value. Its primary purpose is to allow the creator to set an initial value upon creation and to permit any subsequent updates to that value via an application update transaction.
+
+### Functional Description
+1. **Creation handler**: Executes when the application ID is zero, indicating a creation transaction. It sets the global state key "key" to the hardcoded value "Initial value" and approves the transaction.
+2. **Update handler**: Executes when the transaction's on-completion field is `UpdateApplication`. It sets the global state key "key" to the value provided in the first application argument of the transaction and approves the transaction. No authorization checks are performed, so any caller can update the application.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Arbitrary update** (0.9213)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can invoke this operation to replace the contract's logic with malicious code.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow update by handling the UpdateApplication call. If there's no handler for OnComplete.UpdateApplication the UpdateUpdateApplication cannot be called, so the issue cannot be present.
+        - **Security check to perform**: Ensure that UpdateApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    update =  Seq([
+            App.globalPut(global_key, Txn.application_args[0]),
+            App.globalPut(global_counter, App.globalGet(global_counter) + Int(1)),
+            Return(Int(1))  # Program accepts arbitrary update
+        ])
+
+[Txn.on_completion() == OnComplete.UpdateApplication, update]
+          ```
+      
+    2. **Arbitrary delete** (0.9057)
+        - **Description:** If UpdateApplication calls are not properly restricted to authorized entities (such as the contract administrator, creator, or other trusted addresses), attackers can call the DeleteApplication transaction and destroy the contract, causing permanent loss of state and funds.
+        - **Preconditions:** Applies to smart contracts (stateful applications) that allow deletion by handling the DeleteApplication call
+        - **Security check to perform**: Ensure that DeleteApplication calls are restricted to authorized entities (es. creator or admin).
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    delete_contract = Seq([
+        Assert(Txn.application_args.length() == Int(1)),
+        Assert(Txn.application_args[0] == Bytes("delete")),
+        Approve()
+    ])
+
+[Txn.on_completion() == OnComplete.DeleteApplication, delete_contract]
+          ```
+      
+    3. **Unchecked Asset Receiver** (0.8988)
+        - **Description:** The 'Unchecked Asset Receiver' vulnerability occurs when a smart contract fails to properly validate the AssetReceiver field in Asset Transfer Transactions (ASA transfers), allowing attackers to redirect tokens to unauthorized addresses.
+        - **Preconditions:** Relevant for TxnType.AssetTransfer transactions in scenarios like ASA distributions, vesting contracts, or token redemptions, where the txn AssetReceiver must be explicitly validated by the contract logic.
+        - **Security check to perform**: Ensure asset transfer only go to whitelisted addresses.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    on_transfer = Seq([
+        Assert(
+            And(
+                Txn.group_index() == Int(1),
+                Gtxn[0].type_enum() == TxnType.AssetTransfer,
+                Gtxn[1].type_enum() == TxnType.ApplicationCall,
+                Gtxn[0].xfer_asset() == Gtxn[1].assets[0],
+                Gtxn[0].asset_amount() >= min_amount
+            )
+        ),
+        # VULNERABILITÃ€: Unchecked_Asset_Receiver
+        # Il receiver dell'asset transfer (Txn.accounts[1]) non viene verificato
+        # potrebbe essere qualsiasi account, anche non autorizzato
+        App.globalPut(Concat(key_prefix, Txn.accounts[1]), Gtxn[0].asset_amount()),
+        Approve()
+    ])
+          ```
+      
+    4. **Unchecked Payment Receiver** (0.8955)
+    
+    5. **Unchecked Close Remainder To** (0.8836)
+    
+    6. **Unchecked Asset Close To** (0.8769)
+    
+    7. **Unchecked Rekey to** (0.8755)
+    
+    8. **Unchecked Transaction Fee** (0.8725)
+    
+
+--------------------------------------------------Audit--------------------------------------------------**Thought:**  
+The contract is a simple stateful application that stores a single global value under the key `"key"`.  
+- During creation (`Txn.application_id() == 0`) it initializes the key with `"Initial value"`.  
+- For all subsequent executions it defines a single conditional branch: when the transaction is an `UpdateApplication` call, it overwrites the global key with the first argument of the transaction (`Txn.application_args[0]`) and then returns success.  
+- No other `OnComplete` branches are defined, so any other transaction type will cause the program to evaluate to false (i.e., be rejected).  
+
+**Security checks against the RAG list:**  
+1. **Arbitrary update (0.9213)** – The contract handles `UpdateApplication` without any sender restriction. Any account can submit an `UpdateApplication` transaction and set the global key to any value, effectively replacing stored state. This matches the vulnerable pattern exactly.  
+2. **Arbitrary delete (0.9057)** – The contract does not contain any `DeleteApplication` handling logic; however, the absence of a handler does not constitute a vulnerability per the checklist (the issue only applies when a handler exists but is unrestricted). No action is needed here.  
+3. **Unchecked Asset Receiver / Payment Receiver / Close To / Rekey / Transaction Fee** – The contract never interacts with ASA transfers, payments, or account closures, so these checks are irrelevant.  
+
+**Other potential issues:**  
+- The contract returns `Int(1)` unconditionally after the update, which is fine.  
+- No explicit access control for the creator/admin is present, leading to the arbitrary update problem identified above.  
+
+**Conclusion:** The contract is vulnerable to arbitrary state updates due to missing authorization on `UpdateApplication`.
+
+<final>
+### Vulnerability: Arbitrary update
+### Explanation: The contract’s conditional program executes the `update` logic on any `UpdateApplication` transaction without verifying the caller. An attacker can send an `UpdateApplication` transaction with any `application_args[0]` value, overwriting the global key and thereby modifying contract state at will.
+### Risk: Critical – Unauthorized parties can arbitrarily modify stored state, potentially disrupting functionality or enabling further exploits.
+### Mitigation: Restrict `UpdateApplication` to authorized addresses (e.g., the creator or an admin) by adding a sender check such as `Assert(Txn.sender() == AppCreator)` or using an access‑control module before performing the update.
+</final>

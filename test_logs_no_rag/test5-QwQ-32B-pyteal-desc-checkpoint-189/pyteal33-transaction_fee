@@ -1,0 +1,43 @@
+
+--------------------------------------------------Audit-------------------------------------------------- Let me analyze this PyTeal code systematically. The contract appears to be a stateless logic signature (smart signature) that validates a transaction group with 3 transactions. Each transaction in the group is validated based on its group index.
+
+     Looking at the structure:
+     - `txn1` validates group index 0
+     - `txn2` validates group index 1
+     - `txn3` validates group index 2
+
+     Now examining the security checks in each transaction path:
+
+     **txn1 (index 0):**
+     - Checks fee ≤ 1000
+     - Checks close_remainder_to == zero_address
+     - Checks asset_close_to == zero_address
+     - Checks rekey_to == zero_address
+
+     **txn2 (index 1):**
+     - Checks close_remainder_to == zero_address
+     - Checks asset_close_to == zero_address
+     - Checks rekey_to == zero_address
+     - **MISSING FEE CHECK**
+
+     **txn3 (index 2):**
+     - Checks fee ≤ 1000
+     - Checks close_remainder_to == zero_address
+     - Checks asset_close_to == zero_address
+     - Checks rekey_to == zero_address
+
+     The critical issue is in `txn2` - it validates all the security parameters (close_remainder_to, asset_close_to, rekey_to) but completely omits the transaction fee check. This means transaction at group index 1 could have an arbitrarily high fee that would be paid from the account controlled by this logic signature.
+
+     The contract is a stateless smart signature (Mode.Signature), which means it's used to authorize transactions. Since this is a delegated logic signature, the fee vulnerability applies here. An attacker could craft a transaction group where the second transaction has a very high fee, draining funds from the account.
+
+</think>
+
+<final>
+
+
+The contract contains a critical vulnerability where one transaction path omits fee validation.
+
+### Vulnerability: Unchecked Transaction Fee
+### Explanation: Transaction at group index 1 lacks fee validation, allowing attackers to set arbitrarily high fees that would be paid from the account controlled by this smart signature.
+### Risk: Critical - Can result in complete drainage of account funds through excessive transaction fees.
+</final>

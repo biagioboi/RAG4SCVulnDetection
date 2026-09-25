@@ -1,0 +1,299 @@
+\section{Algorand e l'Ecosistema di Sviluppo Smart Contract}
+\label{sec:algorand_background}
+
+Per comprendere la natura delle vulnerabilità analizzate in questa tesi, è necessario delineare le caratteristiche dell'infrastruttura Algorand. A differenza delle blockchain EVM-based, Algorand adotta un paradigma architetturale che separa nettamente il livello del consenso dalla logica applicativa, introducendo primitive di sicurezza uniche che influenzano direttamente le superfici di attacco.
+
+\subsection{L'Architettura AVM e il Modello Transazionale}
+Alla base dell'esecuzione degli smart contract vi è la \textit{Algorand Virtual Machine} (AVM), un interprete stack-based non Turing-completo (nella sua concezione originale) progettato per massimizzare la velocità di verifica.
+L'AVM opera all'interno di un protocollo di consenso \textit{Pure Proof-of-Stake} (PPoS), che garantisce finalità immediata delle transazioni: una volta che un blocco è scritto, non può essere "forkato". Dal punto di vista della sicurezza del codice, tre caratteristiche dell'AVM sono determinanti:
+
+\begin{itemize}
+    \item \textbf{Algorand Standard Assets (ASA):} A differenza di Ethereum, dove i token sono smart contract (ERC-20), su Algorand gli asset sono primitive di primo livello gestite direttamente dal protocollo. Ciò elimina intere classi di vulnerabilità come la \textit{Reentrancy}, ma introduce rischi specifici legati alla gestione dei permessi di trasferimento.
+    \item \textbf{Modello di Stato Duale:} Gli smart contract (\textit{Stateful Applications}) possono manipolare due tipi di memoria:
+    \begin{itemize}
+        \item \textit{Global State:} Variabili associate all'applicazione stessa (es. contatori totali, admin address).
+        \item \textit{Local State:} Variabili associate al singolo account utente che ha effettuato l'opt-in al contratto.
+    \end{itemize}
+    Molte vulnerabilità logiche nascono proprio da una gestione impropria della lettura/scrittura su questi stati.
+    \item \textbf{Atomic Grouping:} L'AVM permette di raggruppare fino a 16 transazioni in un gruppo atomico: o tutte hanno successo o tutte falliscono. L'analisi di sicurezza deve quindi estendersi oltre il singolo contratto, verificando le dipendenze tra le transazioni del gruppo.
+\end{itemize}
+
+\subsection{Linguaggio PyTeal}
+Sebbene la Algorand Virtual Machine (AVM) esegua nativamente TEAL (un linguaggio di basso livello simile all'Assembly), lo sviluppo di Smart Contract avviene tipicamente tramite \textbf{PyTeal}. 
+PyTeal non viene eseguito direttamente sulla blockchain: è una libreria Python che, una volta eseguita, compila e genera il codice TEAL corrispondente.
+
+Questo livello di astrazione rappresenta una potenziale fonte di vulnerabilità. Uno sviluppatore può infatti produrre codice Python sintatticamente corretto che, tuttavia, si traduce in logiche TEAL insicure (ad esempio, dimenticando di inserire i necessari controlli di sicurezza).
+
+Il Listing \ref{lst:pyteal_example} illustra la struttura tipica di un programma di approvazione. Costrutti chiave come \texttt{Seq} (per definire una sequenza di operazioni) e \texttt{Cond} o \texttt{Return} (per il controllo del flusso) costituiscono la sintassi fondamentale che il nostro modello LLM dovrà imparare a interpretare per rilevare le anomalie.
+
+\begin{lstlisting}[language=Python, caption={Logica di creazione di un'applicazione Stateful in PyTeal}, label={lst:pyteal_example}]
+from pyteal import *
+
+def approval_program():
+    # Definizione della logica per la creazione dell'app
+    on_creation = Seq([
+        # Sicurezza: Memorizza il sender come 'Creator' nel Global State
+        App.globalPut(Bytes("Creator"), Txn.sender()),
+        # Approvazione della transazione
+        Return(Int(1)) 
+    ])
+
+    # Router logic per gestire le chiamate
+    program = Cond(
+        [Txn.application_id() == Int(0), on_creation],
+        # ... altri handler per Update, Delete, NoOp ...
+    )
+    
+    return program
+\end{lstlisting}
+
+La corretta comprensione di questi specifici costrutti PyTeal è il prerequisito essenziale per automatizzare il rilevamento delle vulnerabilità.
+
+\section{Modelli di Esecuzione in Algorand: Stateful vs Stateless}
+\label{sec:stateful_vs_stateless}
+
+A differenza di altre blockchain come Ethereum, dove esiste un unico tipo di smart contract in grado di detenere stato e fondi, l'architettura di Algorand distingue nettamente tra due modalità di utilizzo della logica TEAL: gli \textbf{Smart Contract Stateless} (o Logic Signatures) e gli \textbf{Smart Contract Stateful} (o Applications). Comprendere questa dicotomia è cruciale per identificare le superfici di attacco, che differiscono sostanzialmente tra i due modelli.
+
+
+
+\subsection{Smart Contract Stateless (Logic Signatures)}
+I contratti Stateless, spesso riferiti come \textit{Logic Signatures} (LSig), non mantengono alcuno stato sulla blockchain (non hanno memoria globale o locale). La loro funzione primaria è quella di \textbf{delegare l'autorizzazione alla firma}.
+Invece di una firma crittografica privata, un indirizzo Algorand può essere governato dal hash di un programma TEAL. Quando una transazione viene inviata da questo indirizzo, la rete esegue la logica del programma:
+\begin{itemize}
+    \item Se il programma restituisce \texttt{true} (e non termina con errore), la transazione è autorizzata.
+    \item Se restituisce \texttt{false}, la transazione viene rifiutata.
+\end{itemize}
+
+\subsubsection{Problematiche di Sicurezza: Furto di Identità e Drenaggio}
+La natura di "delega di firma" rende i contratti Stateless estremamente sensibili. Se la logica è imperfetta, un attaccante può costruire una transazione che soddisfa i requisiti formali del codice ma esegue azioni malevole non previste dallo sviluppatore. Le vulnerabilità critiche includono:
+
+\begin{enumerate}
+    \item \textbf{Rekeying Attack (Furto di Identità):} 
+    In Algorand, il campo \texttt{RekeyTo} in una transazione permette di delegare la capacità di firma di un account a un altro indirizzo, mantenendo inalterato l'indirizzo pubblico e i saldi. 
+    Una vulnerabilità classica nei contratti Stateless si verifica quando il codice verifica i campi di pagamento (es. importo e ricevente) ma omette di verificare che il campo \texttt{RekeyTo} sia vuoto (o impostato a \texttt{ZeroAddress}).
+    \textit{Scenario di attacco:} Un attaccante invia una transazione da un contratto escrow vulnerabile; la transazione rispetta le regole di pagamento, ma imposta \texttt{RekeyTo} all'indirizzo dell'attaccante. Da quel momento, l'attaccante ha il controllo totale dell'account escrow, bypassando per sempre la logica dello smart contract.
+    
+    \item \textbf{Account Closing (Drenaggio dei Fondi):}
+    Le transazioni di pagamento (\texttt{Pay}) in Algorand possiedono due campi per il destinatario: \texttt{Receiver} e \texttt{CloseRemainderTo}. Quest'ultimo invia tutto il saldo residuo dell'account a un indirizzo specificato, chiudendo l'account. Se lo smart contract controlla solo il \texttt{Receiver} e non verifica che \texttt{CloseRemainderTo} sia vuoto, un attaccante può svuotare l'intero saldo del contratto.
+    
+    \item \textbf{Asset Closing (Drenaggio degli Asset):}
+    Analogamente, nelle transazioni di trasferimento asset (\texttt{Axfer}), esiste il campo \texttt{AssetCloseTo}. La mancata verifica di questo campo permette a un attaccante di sottrarre tutti i token detenuti dal contratto stateless.
+\end{enumerate}
+
+\subsection{Smart Contract Stateful (Applications)}
+I contratti Stateful sono vere e proprie applicazioni che risiedono sulla blockchain (`Application ID`). Essi possono leggere e scrivere dati nello stato globale (\textit{Global State}) associato all'applicazione o nello stato locale (\textit{Local State}) associato a specifici account che hanno effettuato l'opt-in.
+Le interazioni avvengono tramite \textit{Application Call Transactions} (es. \texttt{NoOp}, \texttt{OptIn}, \texttt{DeleteApplication}).
+
+\subsubsection{Problematiche di Sicurezza: Controllo degli Accessi e Stato}
+A differenza dei Stateless, dove il rischio è il furto dell'account, nei Stateful il rischio principale è la corruzione logica dell'applicazione o l'esecuzione non autorizzata di funzioni privilegiate.
+
+\begin{enumerate}
+    \item \textbf{Mancata Autorizzazione nella Scrittura dello Stato:}
+    Una delle vulnerabilità più diffuse riguarda la protezione delle variabili globali sensibili (es. \texttt{AdminAddress}, \texttt{Price}, \texttt{Config}). Se il codice TEAL/PyTeal non verifica esplicitamente l'identità del chiamante (\texttt{Txn.sender}), chiunque può inviare una transazione \texttt{ApplicationCall} che sovrascrive lo stato globale.
+    \textit{Esempio:} Una funzione \texttt{set\_admin()} che non controlla se il chiamante è l'attuale amministratore permette un \textit{privilege escalation} immediato.
+    
+    \item \textbf{Gestione Errata del Lifecycle (Delete/Update):}
+    Le applicazioni Algorand possono essere aggiornate o eliminate. È imperativo che le clausole \texttt{OnComplete == DeleteApplication} e \texttt{OnComplete == UpdateApplication} siano protette da controlli rigorosi (solitamente restringendo l'azione al solo indirizzo creatore). L'omissione di questi check permette a qualsiasi utente malevolo di rimuovere lo smart contract dalla blockchain, rendendolo inutilizzabile e potenzialmente bloccando i fondi degli utenti che vi interagiscono.
+    
+    \item \textbf{Logic Errors nell'Inner Transaction:}
+    I contratti Stateful possono emettere transazioni interne (\textit{Inner Transactions}) per spostare fondi detenuti dall'Application Account. Errori nel calcolo degli importi o nella definizione dei destinatari all'interno della logica stateful possono portare a perdite finanziarie dirette per il protocollo.
+\end{enumerate}
+
+\section{Tassonomia delle Vulnerabilità in PyTeal}
+\label{sec:vulnerabilita}
+
+In questo lavoro di tesi, l'analisi si concentra su un sottoinsieme specifico di vulnerabilità critiche per l'ecosistema Algorand. Basandosi sulla mappatura proposta da Boi et al. \cite{boi2025}, abbiamo selezionato tre macro-categorie derivate dalla OWASP Top 10, che rappresentano i rischi più frequenti e devastanti per gli smart contract scritti in PyTeal.
+
+Di seguito vengono dettagliate le specifiche vulnerabilità prese in esame.
+
+\subsection{Access Control Vulnerabilities (\texorpdfstring{$V_1$}{V1})}
+Questa categoria, corrispondente alla $V_1$ \cite{boi2025} della OWASP Top 10, raggruppa le vulnerabilità derivanti dalla mancata verifica dell'identità del chiamante o dei destinatari autorizzati. In PyTeal, l'assenza di controlli espliciti (es. verificare `Txn.sender` o  `Txn.receiver`) permette a utenti malintenzionati di alterare lo stato del contratto o sottrarre fondi.
+
+\begin{itemize}
+    \item \textbf{Arbitrary Update:} Si verifica quando uno smart contract permette l'aggiornamento del proprio codice (`UpdateApplication`) senza verificare che il chiamante sia il creatore o un amministratore autorizzato. Un attaccante può sovrascrivere la logica del contratto con codice malevolo.
+    
+    \item \textbf{Arbitrary Delete:} Simile all'update, questa vulnerabilità permette a chiunque di eliminare l'applicazione (`DeleteApplication`) dalla blockchain. Questo rimuove lo smart contract e ne cancella lo stato globale, causando una perdita di servizio irreversibile.
+    
+    \cite{boi2025}\item \textbf{Unchecked Payment Receiver:} Nelle transazioni di pagamento gestite dal contratto, se non viene verificato il campo `Receiver`, un attaccante può deviare i fondi verso il proprio indirizzo invece che verso il destinatario legittimo.
+    
+    \item \textbf{Unchecked Asset Receiver:} Analoga alla precedente, ma specifica per gli Algorand Standard Assets (ASA). \cite{boi2025}La mancata validazione del destinatario in una transazione `Axfer` (Asset Transfer) permette il furto di token gestiti dal contratto.
+\end{itemize}
+
+\subsection{Unchecked External Calls e Drenaggio Fondi (\texorpdfstring{$V_6$}{V6})}
+Sebbene Algorand non supporti chiamate esterne dirette complesse come Ethereum (reentrancy classica), esistono meccanismi che, se non controllati, permettono interazioni esterne pericolose o la cessione del controllo dell'account \cite{boi2025}.
+
+\begin{itemize}
+    \item \textbf{Unchecked RekeyTo:} Questa è una vulnerabilità specifica e critica di Algorand. Il campo `RekeyTo` permette di delegare i diritti di firma di un account a un altro indirizzo. Se uno smart contract approva una transazione senza verificare che il campo `RekeyTo` sia vuoto (o impostato a `ZeroAddress`), un attaccante può impostare il proprio indirizzo come nuova autorità di firma, prendendo il controllo totale dell'account del contratto (LogicSig o Application Account).
+    
+    \item \textbf{Unchecked Close Remainder To:} Nelle transazioni di pagamento (`Pay`), il campo `CloseRemainderTo` trasferisce tutto il saldo residuo dell'account a un indirizzo specifico, chiudendo l'account stesso. Se il contratto non controlla questo campo, un attaccante può inserire il proprio indirizzo e drenare l'intero saldo di Algo del contratto.
+    
+    \item \textbf{Unchecked Asset Close To:} Funziona in modo identico al precedente ma si applica agli asset (`Axfer`). Un attaccante può sfruttare questo campo per farsi inviare l'intero ammontare di un token specifico detenuto dal contratto, chiudendone la posizione.
+\end{itemize}
+
+\subsection{Denial of Service Attacks (\texorpdfstring{$V_{10}$}{V10})}
+Gli attacchi DoS in Algorand mirano spesso a esaurire le risorse economiche o computazionali del contratto o degli utenti onesti \cite{boi2025}.
+
+\begin{itemize}
+    \item \textbf{Unchecked Transaction Fee:} In Algorand, le fee di transazione possono essere pagate da qualsiasi partecipante in un gruppo atomico. Una vulnerabilità comune si verifica quando uno smart contract non impone limiti sulla `Txn.fee` che sta pagando o non verifica che la fee sia coperta dall'utente. Un attaccante può costringere il contratto a pagare fee esorbitanti per le proprie transazioni, prosciugando rapidamente il saldo operativo dell'applicazione e rendendola inutilizzabile per mancanza di fondi minimi.
+\end{itemize}
+
+\section{Fondamenti Teorici: LLM e RAG}
+\label{sec:llm_theory}
+
+L'intelligenza artificiale generativa moderna si basa sui \textit{Large Language Models} (LLM), reti neurali addestrate su vasti corpus di testo per comprendere e generare linguaggio umano e codice. Tuttavia, per applicare questi modelli alla sicurezza degli smart contract Algorand, è necessario comprendere i meccanismi interni che permettono loro di elaborare il codice e i limiti che rendono necessario l'uso di architetture esterne come il RAG.
+
+\subsection{Large Language Models (LLM): Dall'Input alla Generazione}
+Un LLM non "legge" il testo come un essere umano, ma processa sequenze numeriche attraverso un'architettura a tre stadi fondamentali: la vettorializzazione dell'input (Embedding), l'elaborazione del contesto (Transformer) e la predizione probabilistica dell'output (Generazione Autoregressiva).
+
+\subsubsection{Rappresentazione Semantica: Vettori ed Embeddings}
+Il primo passo è tradurre i simboli discreti (parole o token del codice PyTeal) in rappresentazioni matematiche continue chiamate \textbf{embeddings}. 
+Storicamente, modelli come \textbf{Word2Vec} \cite{mikolov2013efficient} mappavano ogni parola in un vettore statico fisso. Tuttavia, questo approccio è insufficiente per il codice, dove il contesto è tutto: la keyword \texttt{CloseOut} ha un significato diverso se appare in una logica di approvazione o in un commento.
+
+I moderni LLM utilizzano \textbf{Contextual Embeddings}: il vettore numerico di un token non è fisso, ma cambia dinamicamente in base ai token circostanti. Questo permette al modello di posizionare frammenti di codice semanticamente simili (es. due modi diversi di scrivere un controllo sulla \texttt{Txn.fee}) vicini nello spazio vettoriale multidimensionale.
+
+\subsubsection{Transformer e Self-Attention}
+Una volta convertito l'input in vettori, questi vengono processati dall'architettura \textbf{Transformer} \cite{vaswani2017attention}. Il cuore di questa rete è il meccanismo di \textbf{Self-Attention}, che permette al modello di pesare l'importanza di ogni token rispetto a tutti gli altri nella sequenza, indipendentemente dalla loro distanza.
+
+Matematicamente, per ogni token, il modello calcola quanto "attenzione" prestare agli altri token per costruirne il significato:
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+$$
+Nel contesto del codice, questo meccanismo è cruciale: permette al modello di collegare una variabile definita all'inizio del contratto (es. \texttt{is\_admin}) con il suo utilizzo in un controllo di sicurezza (es. \texttt{Assert(is\_admin)}) che avviene centinaia di righe dopo, mantenendo la coerenza logica globale.
+
+\subsubsection{Generazione Autoregressiva}
+L'ultimo stadio è la generazione dell'output. Gli LLM sono reti neurali \textbf{autoregressive}: non generano l'intera risposta simultaneamente, ma predicono un token alla volta basandosi sulla sequenza precedente.
+Il modello calcola la probabilità condizionata $P(w_t | w_{1:t-1})$ del prossimo token $w_t$ data l'intera storia dei token precedenti (prompt + token già generati).
+
+Questo meccanismo è un'arma a doppio taglio, poiché è la causa scatenante sia delle capacità di ragionamento che delle allucinazioni:
+
+\begin{itemize}
+    \item \textbf{Il Meccanismo del "Thinking" (CoT):} L'autoregressione è ciò che abilita il \textit{Chain-of-Thought}. Quando il modello genera un passaggio intermedio di ragionamento (es. "Verifico se la fee è > 1000"), questo testo diventa immediatamente parte del contesto $w_{1:t-1}$ per la predizione del token successivo $w_t$. In pratica, il modello "pensa" scrivendo: ogni step logico generato riduce l'entropia per lo step successivo, guidando la generazione verso la soluzione corretta attraverso l'auto-condizionamento.
+    
+    \item \textbf{La Genesi delle Allucinazioni:} D'altro canto, il modello è ottimizzato per massimizzare la plausibilità statistica, non la veridicità fattuale. Se il modello non possiede la conoscenza specifica, la natura autoregressiva lo costringerà comunque a predire il token che \textit{semanticamente} e \textit{sintatticamente} si adatta meglio al pattern precedente. Il risultato è codice sintatticamente perfetto ma funzionalmente inesistente, generato solo per soddisfare la coerenza probabilistica della sequenza.
+\end{itemize}
+
+\subsection{Retrieval-Augmented Generation (RAG)}
+\label{sec:rag_workflow}
+Per mitigare il problema delle allucinazioni e l'assenza di conoscenze aggiornate, si adotta il paradigma \textbf{RAG} \cite{lewis2020rag}. 
+Il RAG non modifica i pesi della rete neurale (come il Fine-Tuning), ma interviene sul prompt di input attraverso un processo a tre fasi:
+
+\subsubsection{Fase 1: Retrieval (Recupero Semantico)}
+Il sistema utilizza un modello di embedding (basato su Transformer, non su Word2Vec, per catturare il contesto) per trasformare la query dell'utente (es. il codice del contratto da analizzare) in un vettore. 
+Questo vettore viene confrontato, tramite \textit{Cosine Similarity}, con un database vettoriale contenente documenti verificati (es. contratti vulnerabili correlati con documentazione sulla vulnerabilità). Il sistema recupera i $k$ frammenti più simili semanticamente, garantendo che le informazioni siano pertinenti alla logica specifica della query in input.
+
+\subsubsection{Fase 2: Augmentation (Arricchimento del Contesto)}
+I documenti recuperati non vengono forniti all'utente, ma vengono iniettati dinamicamente nel prompt del sistema. Il contesto originale viene "aumentato" concatenando la query dell'utente con le informazioni recuperate.
+Esempio concettuale:
+\begin{quote}
+    \textit{Originale:} "Analizza questo contratto." \\
+    \textit{Augmented:} "Usa queste regole di sicurezza Algorand recuperate: [Regola A, Regola B]. Basandoti su queste, analizza questo contratto."
+\end{quote}
+
+\subsubsection{Fase 3: Generation (Generazione Vincolata)}
+Infine, il Transformer riceve il prompt aumentato. Grazie al meccanismo di Self-Attention, il modello ora "presta attenzione" sia al codice dell'utente sia ai documenti recuperati. La generazione autoregressiva dei token successivi è quindi vincolata (grounded) dalle informazioni fattuali presenti nel contesto, riducendo drasticamente la probabilità che il modello inventi funzionalità o ignori controlli di sicurezza specifici dell'AVM. A conferma di questo studi recenti \cite{shuster2021retrieval} dimostrano che l'approccio RAG riduce drasticamente il tasso di allucinazioni, trasformando il compito del modello da "memorizzazione e recupero" a "lettura, comprensione e sintesi".
+
+\subsection{Adattamento del Modello: Il Processo di Fine-Tuning}
+\label{sec:finetuning_intro}
+
+Sebbene i modelli pre-addestrati (Base Models) acquisiscano una vasta conoscenza generale durante la fase di pre-training su terabyte di dati testuali, essi mancano spesso della specificità necessaria per risolvere task verticali complessi. Un modello generalista potrebbe conoscere la sintassi di Python, ma ignorare le sottili implicazioni di sicurezza specifiche della libreria PyTeal o lo stile di audit richiesto da un esperto di sicurezza.
+
+Il \textbf{Fine-Tuning} è la tecnica di \textit{Transfer Learning} utilizzata per colmare questo divario. Consiste nel riprendere un modello già addestrato e sottoporlo a un'ulteriore fase di training supervisionato su un dataset più piccolo e altamente specializzato (nel nostro caso, coppie di codice PyTeal vulnerabile e analisi di sicurezza).
+L'obiettivo matematico non è più apprendere la struttura generale del linguaggio (già acquisita), ma minimizzare la funzione di perdita su specifici pattern di output desiderati, specializzando i pesi della rete per allineare le risposte del modello alle aspettative del dominio di applicazione.
+
+\subsubsection{Limiti dell'Addestramento: Full Fine-Tuning vs PEFT}
+L'approccio tradizionale per adattare un LLM a un nuovo task è il \textit{Full Fine-Tuning}, che prevede l'aggiornamento di tutti i parametri del modello (spesso miliardi). Sebbene efficace, questo metodo presenta due criticità maggiori:
+\begin{enumerate}
+    \item \textbf{Costo Computazionale:} Richiede risorse hardware ingenti (GPU cluster) per gestire i gradienti di tutti i pesi.
+    \item \textbf{Catastrophic Forgetting:} Il modello rischia di sovrascrivere la conoscenza generale pregressa per adattarsi eccessivamente al nuovo dataset ristretto.
+\end{enumerate}
+
+Per ovviare a questi problemi, si sono affermate le tecniche di \textit{Parameter-Efficient Fine-Tuning} (PEFT). A differenza del full fine-tuning, le tecniche PEFT congelano la maggior parte dei parametri del modello pre-addestrato e aggiornano solo un piccolo sottoinsieme di pesi o moduli aggiuntivi.
+
+\subsubsection{LoRA e QLoRA: Efficienza e Prestazioni}
+Tra le tecniche PEFT, \textit{Low-Rank Adaptation} (LoRA) \cite{hu2021lora} si distingue per il suo approccio matematico all'aggiornamento dei pesi. LoRA ipotizza che la variazione dei pesi durante l'adattamento abbia un "rango intrinseco" basso.
+Invece di ottimizzare la matrice di aggiornamento completa, LoRA la decompone in due matrici di rango ridotto $A$ e $B$:
+
+\begin{equation}
+W_{aggiornato} = W_0 + \Delta W = W_0 + BA
+\end{equation}
+
+Dove $r \ll \min(d, k)$ è il rango della matrice (un iperparametro, es. $r=16$ o $r=64$). Durante il training, $W_0$ rimane congelata, riducendo drasticamente (spesso fino a $10.000\times$) il numero di parametri da addestrare e l'occupazione di memoria VRAM, mantenendo prestazioni comparabili al full fine-tuning.
+
+Un'evoluzione ulteriore è rappresentata da \textbf{QLoRA} (Quantized LoRA) \cite{dettmers2023qlora}, che combina LoRA con una quantizzazione ad alta precisione a 4-bit del modello base. Questo permette di effettuare il fine-tuning di modelli enormi (come Llama-3 70B) su singole GPU consumer.
+
+\chapter{Stato dell'Arte e Lavori Correlati}
+\label{chap:state_of_the_art}
+
+L'applicazione dei Large Language Models (LLM) alla sicurezza degli smart contract rappresenta un campo di ricerca in rapida evoluzione, caratterizzato tuttavia da una forte asimmetria nella copertura delle diverse piattaforme blockchain. Questo capitolo analizza la letteratura esistente, evidenziando come la maggior parte degli sforzi si sia concentrata sull'ecosistema Ethereum e come, solo recentemente, l'attenzione si sia spostata su architetture alternative come Algorand, facendo emergere nuove sfide legate alla specificità dei linguaggi come PyTeal.
+
+\section{Tools per la Vulnerability Detection}
+Tradizionalmente, la rilevazione di vulnerabilità su blockchain si è affidata a strumenti di analisi statica e simbolica (es. Slither, SmartCheck). Sebbene efficaci per pattern noti su Ethereum, questi strumenti mostrano limiti significativi quando applicati a nuove chain:
+\begin{itemize}
+    \item \textbf{Incompatibilità Architetturale:} Strumenti progettati per la EVM (Ethereum Virtual Machine) non sono applicabili direttamente ad Algorand o Solana a causa delle profonde differenze nei linguaggi di programmazione (TEAL/PyTeal vs Solidity) e nei modelli di esecuzione (Stack-based vs Register-based/Account-based).
+    \item \textbf{Rigidità delle Regole:} L'analisi statica fatica a identificare vulnerabilità logiche complesse che richiedono una comprensione semantica dell'intento del contratto, un'area dove gli LLM promettono risultati migliori.
+\end{itemize}
+
+\subsection{LLM per la Vulnerability Detection}
+Con l'avvento dei Large Language Models, il focus della ricerca si è spostato sull'utilizzo dell'IA generativa per la comprensione semantica del codice. 
+Recenti framework come \textbf{GPTScan} \cite{sun2024gptscan} hanno dimostrato che l'uso combinato di LLM e analisi statica permette di rilevare vulnerabilità logiche con precisioni superiori al 90\%. 
+Similmente, approcci multi-agente come \textbf{LLM-SmartAudit} \cite{llmsmartaudit2024} hanno evidenziato come gli LLM superino gli strumenti tradizionali proprio grazie alla capacità di comprendere il contesto operativo del contratto.
+Tuttavia, questi studi evidenziano anche una criticità: se interrogati in modalità \textit{Zero-Shot}, gli LLM tendono a generare output imprecisi e "allucinazioni", specialmente quando le regole di sicurezza non sono universalmente standardizzate \cite{llm4vuln2024}.
+
+\subsection{Integrazione del Retrieval-Augmented Generation (RAG)}
+Per mitigare i limiti della conoscenza parametrica pura e la tendenza alle allucinazioni, la letteratura più recente (2024-2025) ha iniziato a esplorare l'utilizzo del \textit{Retrieval-Augmented Generation} (RAG) applicato alla sicurezza del codice. L'obiettivo principale di questo paradigma è ancorare fattualmente le risposte del modello, fornendogli un contesto dinamico e pertinente prima della fase di inferenza.
+
+\subsubsection{L'Efficacia del Contesto Dinamico}
+Diversi studi hanno dimostrato che fornire all'LLM esempi di riferimento recuperati \textit{on-the-fly} (come frammenti di codice vulnerabile, le relative patch correttive o descrizioni formali CVE) aumenta significativamente l'accuratezza del rilevamento.
+Ad esempio, il framework \textbf{Vul-RAG} \cite{vulrag2024} ha dimostrato empiricamente che l'iniezione nel prompt di conoscenze storiche sulle vulnerabilità (comprendenti cause scatenanti e mitigazioni) incrementa la capacità del modello di distinguere tra codice vulnerabile e codice corretto con un miglioramento dell'accuratezza compreso tra il 16\% e il 24\%.
+Similmente, \textbf{PropertyGPT} \cite{propertygpt2025}, un recente sistema LLM-driven per la generazione di proprietà formali (invarianti e pre/post-condizioni), sfrutta un database vettoriale di proprietà redatte da esperti. Il sistema recupera le proprietà di riferimento più affini al codice in esame per abilitare l'apprendimento *in-context* (In-Context Learning) del modello. In PropertyGPT questo approccio ha permesso di rilevare con successo numerosi \textit{zero-day} e 9 su 13 CVE analizzate.
+
+In entrambi i casi, il RAG funge da meccanismo di validazione: evita che il modello si affidi esclusivamente ai pattern statistici del pre-training, costringendolo a confrontare il codice in esame con casi reali e verificati (la \textit{ground-truth}).
+
+\subsubsection{Astrazione Semantica nel Retrieval}
+Un elemento critico emerso dalla letteratura è che la semplice indicizzazione del codice sorgente grezzo (\textit{Raw Code}) porta spesso a risultati subottimali nel retrieval \cite{vulrag2024}.
+Gli algoritmi di similarità vettoriale tendono a confondere la similarità testuale con la similarità semantica o logica. Questo fenomeno porta al recupero di esempi di codice che appartengono allo stesso dominio applicativo, ma che differiscono profondamente per i profili di vulnerabilità.
+
+Per ovviare a questo problema si ricorre a livelli di \textbf{astrazione del codice}.
+Nel caso di Vul-RAG, il sistema estrae preventivamente la "Semantica Funzionale" dal codice, generalizzando dettagli specifici come i nomi delle variabili e le invocazioni di metodi. Il retrieval viene quindi eseguito calcolando la similarità non solo sul codice, ma su questi riassunti semantici di alto livello.
+Questo approccio garantisce che il sistema recuperi vulnerabilità che condividono la medesima "struttura logica di sicurezza" e non semplicemente la medesima sintassi superficiale. Questo passaggio risulta cruciale per fornire agli LLM esempi realmente mirati.
+
+
+\section{LLM per la Sicurezza in Ambienti Non-EVM}
+Nonostante i rapidi progressi, l'attuale stato dell'arte è fortemente sbilanciato (oltre il 90\% degli studi) verso il linguaggio Solidity e l'Ethereum Virtual Machine (EVM). I linguaggi basati su stack machine con paradigmi differenti, come il TEAL (Transaction Execution Approval Language) di Algorand e il suo binding Python (\textbf{PyTeal}), sono stati largamente trascurati a causa della scarsità di dataset annotati.
+
+\subsection{Lo Studio di Riferimento: Boi ed Esposito (2025)}
+Uno dei contributi più rilevanti e recenti in questo ambito è il lavoro di Boi ed Esposito, che ha indagato specificamente l'efficacia di diverse strategie di addestramento (Prompt Engineering vs Fine-Tuning) per il rilevamento di vulnerabilità su Algorand e Solana.
+Lo studio ha introdotto un dataset sintetico basato sulla tassonomia OWASP 2025, mappando vulnerabilità critiche come \textbf{Access Control} ($V_1$), \textbf{Unchecked External Calls} ($V_6$) e \textbf{DoS} ($V_{10}$) sui paradigmi specifici di TEAL e Rust.
+
+Dall'analisi sperimentale condotta su modelli come Llama-3 e DeepSeek-R1-Distill, sono emerse evidenze cruciali che motivano la direzione di questa tesi:
+
+\subsubsection{La sfida sintattica di PyTeal}
+I risultati hanno dimostrato che PyTeal è significativamente più difficile da analizzare per gli LLM rispetto a Rust (Solana). Mentre i contratti in Rust beneficiano di una semantica più ricca e simile ad altri linguaggi imperativi, i contratti Algorand (basati su logica stack e opcode TEAL) risultano meno espressivi semanticamente.
+Questa difficoltà intrinseca si riflette nelle metriche:
+\begin{itemize}
+    \item Il modello Llama-3 base (senza fine-tuning) ha fallito nel rilevare la maggior parte delle vulnerabilità su Algorand, ottenendo spesso un \textbf{F1-score} nullo a causa di una \textbf{Recall} pari a zero.
+    \item DeepSeek ha mostrato prestazioni superiori, confermando che modelli con un pre-training più robusto sul codice partono avvantaggiati, ma faticano comunque sulle sfumature di TEAL senza adattamento.
+\end{itemize}
+
+\subsubsection{Necessità del Fine-Tuning su Algorand}
+Lo studio conclude che, mentre il Prompt Engineering può essere sufficiente per linguaggi semanticamente ricchi come Rust, il \textbf{Fine-Tuning è essenziale per linguaggi di basso livello come TEAL}.
+In particolare, la configurazione ibrida (Prompt Engineering + Fine-Tuning) ha permesso a Llama di raggiungere la sua massima accuratezza (0.65) su Algorand, superando le prestazioni del solo prompt engineering. Tuttavia, anche con il fine-tuning, vulnerabilità logiche sottili come \textbf{Unchecked Close Remainder To} rimangono difficili da rilevare rispetto a controlli più espliciti.
+
+\section{Limiti Attuali e Avanzamenti Proposti}
+Sebbene il lavoro di Boi et al. dimostri l'utilità del fine-tuning, gli approcci attuali presentano ancora dei limiti nella profondità dell'analisi che questa tesi intende superare.
+
+\subsection{Dalla Memorizzazione statistica al Ragionamento}
+Allo stato attuale, l'addestramento dei modelli per la rilevazione delle vulnerabilità tende spesso a basarsi sulla mera memorizzazione statistica di frammenti di codice, risultando proni ad allucinazioni. I modelli, infatti, imparano a memorizzare e riconoscere frammenti di codice associati a specifici difetti, ma lo fanno senza comprenderne a fondo la logica causale. 
+
+In pratica, ai sistemi viene implicitamente insegnato \textit{cosa} cercare (la firma visiva di un bug), ma non viene spiegato loro \textit{come} si sviluppa l'attacco, \textit{dove} risiede esattamente l'errore nel flusso di esecuzione, e \textit{perché} l'assenza di un determinato controllo costituisca una minaccia.
+
+Questa mancanza di reale comprensione diventa un limite evidente affrontando le vulnerabilità più complesse.
+
+\subsection{Il contributo della Tesi: RAG e Fine-Tuning CoT}
+Per colmare il gap evidenziato dallo stato dell'arte, questa tesi introduce due innovazioni metodologiche rispetto allo studio di riferimento:
+
+\begin{itemize}
+    \item \textbf{Integrazione RAG per In-Context Learning:} Il nostro sistema implementa una pipeline RAG, che inietta dinamicamente nel prompt non solo la definizione della vulnerabilità, ma anche snippet di codice simili recuperati da una Knowledge Base vettoriale. Questo mitiga il problema della scarsità di dati e fornisce al modello esempi \textbf{few-shot} contestuali che hanno dimostrato di migliorare l'accuratezza in scenari complessi.
+    
+    \item \textbf{Fine-Tuning orientato al Chain-of-Thought (CoT):} A differenza del fine-tuning standard per la classificazione, il nostro dataset è strutturato per indurre il modello a generare tracce di ragionamento (\textbf{Chain-of-Thought}). Il modello viene addestrato a "spiegare a se stesso" il flusso di esecuzione del contratto PyTeal prima di emettere un verdetto. Questo approccio mira a migliorare la precisione sulle vulnerabilità logiche che studi precedenti hanno identificato come critiche e difficili da generalizzare.
+\end{itemize}

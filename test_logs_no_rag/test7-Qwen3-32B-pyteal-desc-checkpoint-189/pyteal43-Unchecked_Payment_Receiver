@@ -1,0 +1,52 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+
+
+Let me analyze this PyTeal smart contract systematically. First, I'll understand what this pension system does, then examine each component for security vulnerabilities.
+
+**Overview:**
+This is a stateful application contract implementing a pension system. It has:
+- Initialization to set company and fund
+- Contribution function for company to add funds
+- Pension setting function for company
+- Withdraw function for employees
+- Delete handler for company
+
+**Architecture:**
+- Global state stores company address, fund amount, and pension amount
+- Uses inner transactions for payments
+- Has proper access controls for company functions
+
+**Security Analysis:**
+
+1. **Vulnerability 7 - Arbitrary Update**: 
+   The contract handles `OnComplete.UpdateApplication` but sends it to `set_pension` which only checks if sender is company. This is problematic because update operations should allow changing the entire application logic, not just pension parameters. The company should have exclusive update rights but the current implementation doesn't properly restrict what can be updated.
+
+2. **Vulnerability 8 - Arbitrary Delete**:
+   The `handledelete` function properly checks if sender is company before allowing deletion. This is correctly implemented.
+
+3. **Inner Transaction Security**:
+   In the `withdraw` function, the contract creates an inner payment transaction. Let me check if it validates critical fields:
+   - **Fee**: Not explicitly checked - could be exploited
+   - **Close Remainder To**: Not checked - could drain account
+   - **Rekey To**: Not checked - could change account authorization
+   - **Receiver**: Uses `Gtxn[1].receiver()` without validation - could send funds anywhere
+
+4. **Other Checks**:
+   - No asset transfers, so 3 and 6 don't apply
+   - No rekeying in payment transactions (though inner tx doesn't check)
+   - No arbitrary update vulnerability beyond what's already identified
+
+The most critical issue is that the update handler doesn't properly restrict what can be modified - it allows arbitrary application updates when it should only allow specific pension-related changes.
+
+</think>
+
+<final>
+
+
+The contract implements a pension system but contains a critical vulnerability in its update authorization logic.
+
+### Vulnerability: Arbitrary update
+### Explanation: The contract improperly handles application updates by allowing the company to update any aspect of the application logic rather than restricting updates to specific, authorized pension-related parameters. This could allow malicious updates to the entire contract logic.
+### Risk: Critical - Allows complete takeover of the pension system by replacing its core logic.
+</final>

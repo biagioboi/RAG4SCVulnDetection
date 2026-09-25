@@ -1,0 +1,32 @@
+
+--------------------------------------------------Audit--------------------------------------------------
+Okay, let's start by understanding the contract's purpose. The PyTeal code provided is an approval program for an Algorand smart contract. The main functions are initializing the contract when it's first created (application ID 0), handling NoOp transactions with an "initialize" argument, and allowing deletion. 
+
+Looking at the vulnerabilities checklist:
+
+1. **Unchecked Transaction Fee**: The contract doesn't handle any transactions that involve payments or asset transfers. It's a stateful contract managing application calls. Since it's not a smart signature authorizing transactions, this doesn't apply.
+
+2. **Unchecked Close Remainder To**: Similarly, since there are no payment transactions authorized by this contract, this isn't relevant here.
+
+3. **Unchecked Asset Close To**: No asset transfers are handled, so this isn't an issue.
+
+4. **Unchecked Rekey To**: Again, since the contract doesn't authorize payment or asset transfer transactions, rekey checks aren't needed here.
+
+5. **Unchecked Payment Receiver**: Not applicable as there are no payments involved.
+
+6. **Unchecked Asset Receiver**: Same reasoning as above; no asset transfers are handled.
+
+7. **Arbitrary Update**: The contract doesn't handle UpdateApplication. The OnComplete.NoOp is used for initializing, but there's no code for UpdateApplication. So this isn't a problem.
+
+8. **Arbitrary Delete**: The contract allows deletion via OnComplete.DeleteApplication, but the delete_contract function just approves. There's no check to restrict who can delete the contract. This is a vulnerability because any user can delete the application, which could lead to loss of control.
+
+So the main issue here is the missing authorization check for the DeleteApplication action. The contract allows deletion without verifying if the caller is authorized, like the creator or an admin. This could allow an attacker to delete the contract, disrupting its operation.
+</think>
+
+<final>
+The contract allows unrestricted deletion via OnComplete.DeleteApplication without authorization checks.
+
+### Vulnerability: Arbitrary Delete
+### Explanation: The `delete_contract` function approves any `DeleteApplication` transaction without verifying the sender's authorization. This allows any user to delete the contract, potentially leading to loss of control or data.
+### Risk: High - Unauthorized deletion can permanently remove the contract and its stored data, disrupting its intended functionality.
+</final>

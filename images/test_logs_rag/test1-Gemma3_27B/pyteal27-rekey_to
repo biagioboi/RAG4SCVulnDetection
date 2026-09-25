@@ -1,0 +1,108 @@
+
+--------------------------------------------------Description--------------------------------------------------### Contract type:
+Smart signature (stateless)
+
+### Contract Purpose
+This contract is designed to authorize a single, specific asset transfer transaction that sends exactly 100 units of a given asset to a predefined receiver address, while ensuring the transaction fee is reasonable and no asset is closed out.
+
+### Functional Description
+1. The contract first checks that the transaction group contains exactly one transaction.
+2. The contract then validates the single transaction (index 0) against a set of conditions:
+   - Transaction 0 checks: The transaction type must be an AssetTransfer.
+   - Transaction 0 checks: The asset receiver must be the hardcoded address "CVEFVMGWLPFOGLQKO4BPXGAEOY3QQNCHV2I4TK7TFS7RKQM4AGUW74RLLM".
+   - Transaction 0 checks: The asset amount transferred must be exactly 100.
+   - Transaction 0 checks: The transaction fee must be less than or equal to 1000 microAlgos.
+   - Transaction 0 checks: The asset close-to address must be the zero address, preventing the asset from being closed out.
+
+--------------------------------------------------Checklist--------------------------------------------------
+    1. **Unchecked Rekey to** (0.9299)
+        - **Description:** The 'Unchecked Rekey To' vulnerability is a critical security risk that occurs when smart contracts fail to validate the `rekey_to` field in transactions, potentially allowing attackers to steal complete control of accounts (including contract accounts).
+        - **Preconditions:** Applies exclusively to smart signatures. The transactions that can be rekeyed are asset transfer transactions or payment transactions. Crucially, **ApplicationCall transactions cannot be rekeyed** and are therefore exempt from this vulnerability.
+        - **Security check to perform**: Ensure that **all payment and asset transfer transactions** explicitly verify that their `rekey_to` field is set to `Global.zero_address()`
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    txn_0_checks = And(
+        Gtxn[0].type_enum() == TxnType.AssetTransfer,  
+        Gtxn[0].asset_receiver() == Addr("CVEFVMGWLPFOGLQKO4BPXGAEOY3QQNCHV2I4TK7TFS7RKQM4AGUW74RLLM"),  
+        Gtxn[0].asset_amount() == Int(100),  
+        Gtxn[0].fee() <= Int(1000),
+        Gtxn[0].asset_close_to() == Global.zero_address(),
+        # manca il controllo rekey_to
+    )
+          ```
+      
+    2. **Unchecked Asset Close To** (0.9206)
+        - **Description:** The 'Unchecked Asset Close To' vulnerability occurs when a smart signatures does not check that the `asset_close_to` field is either `Global.zero_address()` or an explicitly trusted address. Without this, an attacker may drain remaining asset holdings to their own account.
+        - **Preconditions:** Applies to smart signatures that authorize asset transfer transactions.
+        - **Security check to perform**: Validate that all authorized asset transfers ensure `asset_close_to` is either `Global.zero_address()` or a predefined safe address.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    return And(group_check,
+        Gtxn[0].type_enum() == TxnType.AssetTransfer,
+        # it does not restrict the `asset_close_to` field in a AssetTransfer transaction.
+        Gtxn[0].fee() <= maximum_amount,
+        Gtxn[0].xfer_asset() == expiration_time,
+        Gtxn[0].asset_receiver() ==  Addr("BN2R5VU5TF2U7JM4DDYN4UGJBPGO7CMCKAPCRSPAD6KXBJLWP53JCDFLG4"),
+        Gtxn[0].asset_amount() == expiration_time,
+        Gtxn[0].note() == Bytes("Transfer1"), 
+        Gtxn[0].rekey_to() == Global.zero_address(),
+    )
+          ```
+      
+    3. **Unchecked Close Remainder To** (0.9090)
+        - **Description:** The 'Unchecked Close Remainder To' vulnerability occurs when a stateless smart contract (logic signature) does not explicitly verify that the `close_remainder_to` field is either set to `Global.zero_address()` or to a known, explicitly allowed address in **every** payment transaction it authorizes. Without such checks, attackers may redirect the remaining account balance to arbitrary destinations.
+        - **Preconditions:** Applicable to smart signatures that authorize payment transactions.
+        - **Security check to perform**: Ensure that ** all Payment transactions** authorized by the stateless contract explicitly validate `close_remainder_to` to prevent closure of the account. This typically means verifying it equals `Global.zero_address()`, or—if closing is an intended feature—only allowing specific, trusted addresses. Important: The absence of a check does **not** imply safety. A field is considered unchecked unless it is **explicitly validated** in every applicable transaction. Relying on defaults or omissions is not secure.
+        - **Example Vulnerable Pattern: 
+          ```pyteal
+    Gtxn[1].type_enum() == TxnType.Payment,
+ # it does not restrict the `close_remainder_to` field in a Payment transaction.
+Gtxn[1].receiver() == receiver_b,
+Gtxn[1].amount() >= min_amount_b,
+Gtxn[1].rekey_to() == Global.zero_address(),
+Gtxn[1].first_valid() < timeout_round,
+          ```
+      
+    4. **Unchecked Transaction Fee** (0.9072)
+    
+    5. **Unchecked Asset Receiver** (0.8970)
+    
+    6. **Arbitrary delete** (0.8861)
+    
+    7. **Unchecked Payment Receiver** (0.8832)
+    
+    8. **Arbitrary update** (0.8798)
+    
+
+--------------------------------------------------Audit--------------------------------------------------### Reasoning:
+
+**Contract Purpose & Architecture:**  
+This PyTeal contract enforces an asset transfer transaction with specific constraints. It checks:  
+1. Group size (must be 1).  
+2. Transaction type (AssetTransfer).  
+3. Receiver address (`CVEFVMGWLPFOGLQKO4BPXGAEOY3QQNCHV2I4TK7TFS7RKQM4AGUW74RLLM`).  
+4. Asset amount (100).  
+5. Fee limit (≤1000).  
+6. `asset_close_to` set to `Global.zero_address()`.  
+
+**Vulnerability Analysis:**  
+- **Unchecked Rekey To (RAG #1):**  
+  The code **does not validate `rekey_to`** in the transaction. According to RAG, `rekey_to` must be checked for AssetTransfer transactions. The absence of this check allows attackers to rekey the account to an arbitrary address, enabling full control theft.  
+- **Unchecked Asset Close To (RAG #2):**  
+  The code **explicitly checks `asset_close_to == Global.zero_address()`**, which aligns with the RAG requirement. No gap here.  
+- **Unchecked Close Remainder To (RAG #3):**  
+  This vulnerability applies to Payment transactions, not AssetTransfer. The code does not handle Payment transactions, so this check is irrelevant.  
+- **Other RAG Items:**  
+  Fee and receiver checks are present but basic. No Payment/AssetReceiver/Arbitrary delete/update logic exists.  
+
+**Key Gap:**  
+The contract fails to enforce `rekey_to == Global.zero_address()` for the AssetTransfer transaction, violating RAG #1.  
+
+---
+
+### Final Judgment  
+
+### Vulnerability: Unchecked Rekey To  
+### Explanation: The contract authorizes AssetTransfer transactions without validating the `rekey_to` field. Attackers could rekey the account to an arbitrary address, enabling full control theft.  
+### Risk: Critical  
+### Mitigation: Add `Gtxn[0].rekey_to() == Global.zero_address()` to the transaction checks.
