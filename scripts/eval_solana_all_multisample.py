@@ -227,6 +227,9 @@ def unload_model(model, tokenizer):
     torch.cuda.empty_cache()
 
 
+BATCH_SIZE = int(os.environ.get("EVAL_BATCH_SIZE", "4"))
+
+
 def generate_response(model, tokenizer, messages, seed, max_tokens=1024):
     torch.manual_seed(seed)
     inputs = tokenizer.apply_chat_template(
@@ -238,6 +241,57 @@ def generate_response(model, tokenizer, messages, seed, max_tokens=1024):
         do_sample=True, temperature=0.6, top_p=0.95,
     )
     return tokenizer.decode(outputs[0][inputs.shape[-1]:], skip_special_tokens=True)
+
+
+def generate_batch(model, tokenizer, messages_list, seed, max_tokens=1024):
+    """Batched version of generate_response. Left-padding lets us slice every
+    row at the same offset (input length is identical across the batch after
+    padding) to recover just the generated continuation.
+
+    Note: with batching, one RNG seed covers the whole batch rather than one
+    seed per contract as in the sequential version -- still fully
+    deterministic given (seed_base, sample, batch), but individual contract
+    outputs are no longer bit-identical to a prior sequential run with the
+    same seed_base.
+    """
+    torch.manual_seed(seed)
+    tokenizer.padding_side = "left"
+    enc = tokenizer.apply_chat_template(
+        messages_list, tokenize=True, add_generation_prompt=True,
+        return_tensors="pt", enable_thinking=False, padding=True, return_dict=True,
+    )
+    input_ids = enc["input_ids"].to("cuda")
+    attention_mask = enc["attention_mask"].to("cuda")
+    outputs = model.generate(
+        input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_tokens,
+        do_sample=True, temperature=0.6, top_p=0.95, pad_token_id=tokenizer.pad_token_id,
+    )
+    gen = outputs[:, input_ids.shape[-1]:]
+    return [tokenizer.decode(row, skip_special_tokens=True) for row in gen]
+
+
+def generate_with_retries(model, tokenizer, messages_list, seed_base, max_tokens=1024, max_attempts=3):
+    """Batched generate + parse, retrying only the subset of the batch whose
+    response failed to parse, for up to max_attempts rounds."""
+    n = len(messages_list)
+    responses = [""] * n
+    found_all = [[] for _ in range(n)]
+    pending = list(range(n))
+    for attempt in range(max_attempts):
+        if not pending:
+            break
+        seed = seed_base + attempt * 100000
+        sub_messages = [messages_list[i] for i in pending]
+        sub_responses = generate_batch(model, tokenizer, sub_messages, seed, max_tokens=max_tokens)
+        still_pending = []
+        for local_i, resp in zip(pending, sub_responses):
+            success, found = parse_response(resp)
+            responses[local_i] = resp
+            found_all[local_i] = found
+            if not success:
+                still_pending.append(local_i)
+        pending = still_pending
+    return responses, found_all
 
 
 VULNERABILITY_ALIASES = {
@@ -329,30 +383,30 @@ def run_no_rag(model, tokenizer, out_dir, seed_base):
     all_metrics = []
     for s in range(N_SAMPLES):
         start = time.time()
-        results = []
-        for idx, test_file in enumerate(test_files):
-            with open(test_file, "r", encoding="utf-8") as f:
-                test_data = json.load(f)
-            code = test_data["smart_contract"]
-            ground_truth = test_data["vulnerability"]
-            truth_display = VULN_DISPLAY.get(ground_truth, ground_truth)
-            seed = seed_base + s * 10000 + idx
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT_NO_RAG},
-                {"role": "user", "content": USER_PROMPT_NO_RAG.format(code=code)},
-            ]
-            found_vulns, response = [], ""
-            for attempt in range(3):
-                response = generate_response(model, tokenizer, messages, seed + attempt * 100000)
-                success, found_vulns = parse_response(response)
-                if success:
-                    break
-            results.append({
-                "file": os.path.basename(test_file), "ground_truth": truth_display,
-                "predictions": found_vulns, "response": response,
-            })
-            print(f"  [no_rag][sample {s}] [{idx+1}/{len(test_files)}] "
-                  f"{os.path.basename(test_file)}: truth={truth_display} | pred={found_vulns}")
+        results = [None] * len(test_files)
+        for batch_start in range(0, len(test_files), BATCH_SIZE):
+            batch_files = test_files[batch_start:batch_start + BATCH_SIZE]
+            messages_list, truths = [], []
+            for test_file in batch_files:
+                with open(test_file, "r", encoding="utf-8") as f:
+                    test_data = json.load(f)
+                code = test_data["smart_contract"]
+                truth_display = VULN_DISPLAY.get(test_data["vulnerability"], test_data["vulnerability"])
+                truths.append(truth_display)
+                messages_list.append([
+                    {"role": "system", "content": SYSTEM_PROMPT_NO_RAG},
+                    {"role": "user", "content": USER_PROMPT_NO_RAG.format(code=code)},
+                ])
+            seed = seed_base + s * 10000 + batch_start * 7
+            responses, found_all = generate_with_retries(model, tokenizer, messages_list, seed)
+            for local_i, test_file in enumerate(batch_files):
+                idx = batch_start + local_i
+                results[idx] = {
+                    "file": os.path.basename(test_file), "ground_truth": truths[local_i],
+                    "predictions": found_all[local_i], "response": responses[local_i],
+                }
+                print(f"  [no_rag][sample {s}] [{idx+1}/{len(test_files)}] "
+                      f"{os.path.basename(test_file)}: truth={truths[local_i]} | pred={found_all[local_i]}")
         metrics = compute_metrics(results)
         with open(os.path.join(out_dir, f"results_sample{s}.json"), "w", encoding="utf-8") as f:
             json.dump({"sample": s, "metrics": metrics, "details": results}, f, indent=2, ensure_ascii=False)
@@ -366,38 +420,43 @@ def run_rag(model, tokenizer, out_dir, seed_base):
     all_metrics = []
     for s in range(N_SAMPLES):
         start = time.time()
-        results = []
-        for idx, test_file in enumerate(test_files):
-            with open(test_file, "r", encoding="utf-8") as f:
-                test_data = json.load(f)
-            code = test_data["smart_contract"]
-            ground_truth = test_data["vulnerability"]
-            truth_display = VULN_DISPLAY.get(ground_truth, ground_truth)
+        results = [None] * len(test_files)
+        for batch_start in range(0, len(test_files), BATCH_SIZE):
+            batch_files = test_files[batch_start:batch_start + BATCH_SIZE]
+            codes, truths = [], []
+            desc_messages_list = []
+            for test_file in batch_files:
+                with open(test_file, "r", encoding="utf-8") as f:
+                    test_data = json.load(f)
+                code = test_data["smart_contract"]
+                codes.append(code)
+                truths.append(VULN_DISPLAY.get(test_data["vulnerability"], test_data["vulnerability"]))
+                desc_messages_list.append([
+                    {"role": "system", "content": SYSTEM_PROMPT_DESCRIPTION},
+                    {"role": "user", "content": f"Describe this Solana contract:\n\n```rust\n{code}\n```"},
+                ])
 
-            seed_desc = seed_base + s * 10000 + idx * 4
-            desc_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT_DESCRIPTION},
-                {"role": "user", "content": f"Describe this Solana contract:\n\n```rust\n{code}\n```"},
-            ]
-            description = generate_response(model, tokenizer, desc_messages, seed_desc, max_tokens=512)
-            similar = search_similar_contracts(description)
-            checklist = build_rag_checklist(similar, num_detailed=NUM_DETAILED)
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT_RAG},
-                {"role": "user", "content": USER_PROMPT_RAG.format(checklist=checklist, code=code)},
-            ]
-            found_vulns, response = [], ""
-            for attempt in range(3):
-                response = generate_response(model, tokenizer, messages, seed_desc + 1 + attempt)
-                success, found_vulns = parse_response(response)
-                if success:
-                    break
-            results.append({
-                "file": os.path.basename(test_file), "ground_truth": truth_display,
-                "predictions": found_vulns, "response": response,
-            })
-            print(f"  [rag][sample {s}] [{idx+1}/{len(test_files)}] "
-                  f"{os.path.basename(test_file)}: truth={truth_display} | pred={found_vulns}")
+            seed_desc = seed_base + s * 10000 + batch_start * 7
+            descriptions = generate_batch(model, tokenizer, desc_messages_list, seed_desc, max_tokens=512)
+
+            messages_list = []
+            for code, description in zip(codes, descriptions):
+                similar = search_similar_contracts(description)
+                checklist = build_rag_checklist(similar, num_detailed=NUM_DETAILED)
+                messages_list.append([
+                    {"role": "system", "content": SYSTEM_PROMPT_RAG},
+                    {"role": "user", "content": USER_PROMPT_RAG.format(checklist=checklist, code=code)},
+                ])
+
+            responses, found_all = generate_with_retries(model, tokenizer, messages_list, seed_desc + 1)
+            for local_i, test_file in enumerate(batch_files):
+                idx = batch_start + local_i
+                results[idx] = {
+                    "file": os.path.basename(test_file), "ground_truth": truths[local_i],
+                    "predictions": found_all[local_i], "response": responses[local_i],
+                }
+                print(f"  [rag][sample {s}] [{idx+1}/{len(test_files)}] "
+                      f"{os.path.basename(test_file)}: truth={truths[local_i]} | pred={found_all[local_i]}")
         metrics = compute_metrics(results)
         with open(os.path.join(out_dir, f"results_sample{s}.json"), "w", encoding="utf-8") as f:
             json.dump({"sample": s, "metrics": metrics, "details": results}, f, indent=2, ensure_ascii=False)
